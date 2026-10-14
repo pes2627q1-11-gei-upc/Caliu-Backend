@@ -1,0 +1,47 @@
+---------------------------------------------------------------------
+ARREL DEL REPOSITORI
+---------------------------------------------------------------------
+.github/workflows/
+  Pipelines de CI/CD amb GitHub Actions. Un fitxer per responsabilitat:
+    - ci-node.yml    : tests + anàlisi SonarQube de l'API Node.
+    - ci-python.yml  : tests + anàlisi SonarQube del servei Python.
+    - deploy.yml     : en fer merge a main, construeix les imatges
+                       Docker i desplega al VPS.
+  Cap Pull Request es fusiona si el Quality Gate falla.
+
+docker/
+  Configuracions auxiliars que no pertanyen a un servei concret:
+    - nginx.conf    : proxy invers (SSL/TLS amb Let's Encrypt). Només
+                      exposa api-node; python-service NO es publica.
+    - mongo-init.js : script d'inicialització de MongoDB (crear
+                      usuari, col·leccions i índexs, p. ex. l'índex
+                      2dsphere d'esdeveniments).
+
+docs/
+  Documentació tècnica del backend:
+    - openapi.yaml : contracte de l'API REST. És la referència comuna
+                     amb l'equip de frontend (que és en un altre repo).
+                     S'actualitza ABANS o alhora que l'endpoint.
+    - decisions    : notes sobre decisions d'arquitectura pendents
+                     o tancades (p. ex. planificador de la ingesta).
+
+apps/
+  Conté els dos serveis desplegables. Cadascun té el seu propi
+  Dockerfile, les seves dependències i els seus tests, i es construeix
+  de manera independent.
+
+.env.example
+  Plantilla de variables d'entorn (SENSE valors reals ni secrets).
+  Cada persona la copia a .env i l'omple. El .env real MAI es puja.
+  (Opcional: un .env.example per servei, perquè cada contenidor
+  declari només el que necessita.)
+
+.gitignore
+  Exclou fitxers que no s'han de versionar: .env, node_modules/,
+  __pycache__/, entorns virtuals, logs, etc.
+
+docker-compose.yml
+  Orquestració local: aixeca MongoDB, api-node i python-service amb una
+  sola comanda (docker compose up). Garanteix que tot l'equip treballi
+  amb el mateix entorn que producció.
+
