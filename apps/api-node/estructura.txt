@@ -1,0 +1,64 @@
+---------------------------------------------------------------------
+apps/api-node  ->  API REST PRINCIPAL (JavaScript)
+---------------------------------------------------------------------
+Únic punt d'entrada per a l'app mòbil. S'encarrega de: usuaris i
+autenticació, preferits, assistència ("Hi aniré"), consulta
+d'esdeveniments, recomanacions, assoliments, notificacions push i xat
+d'assistents.
+
+src/config/
+  Configuració de l'aplicació: lectura i validació de variables
+  d'entorn, connexió a MongoDB.
+
+src/models/
+  Esquemes de MongoDB (Mongoose): Usuari (amb Preferències i Settings
+  embeguts), Esdeveniment, Assistència, Assoliment, ProgrésAssoliment,
+  XatEsdeveniment, MissatgeEsdeveniment, SessióXatbot, etc.
+  Compte: l'UML és relacional, però a Mongo s'adapta (vegeu docs).
+
+src/routes/
+  Definició dels endpoints (URL + mètode HTTP) i a quin controlador
+  crida cadascun. Aquí no hi ha lògica, només el "mapa" de l'API.
+
+src/controllers/
+  Reben la petició, validen les dades d'entrada, criden la lògica
+  corresponent i retornen la resposta HTTP.
+
+src/middlewares/
+  Codi que s'executa abans dels controladors:
+    - autenticació (verificar JWT)
+    - validació de dades d'entrada
+    - gestió centralitzada d'errors
+    - limitació de peticions (rate limiting)
+
+src/domain/
+  Lògica de negoci pura, independent d'HTTP i de serveis externs:
+  algorisme de recomanacions, regles d'assoliments (achievements),
+  verificació d'assistència per geolocalització.
+
+src/integrations/
+  Connexions amb sistemes externs:
+    - client de python-service (xatbot, estat de la ingesta)
+    - Firebase Cloud Messaging (notificacions push)
+    - API de WayGo (mobilitat sostenible)
+    - Google Calendar (si s'implementa)
+  Si un servei extern canvia, només es toca aquesta carpeta.
+
+src/sockets/
+  Comunicació en temps real (WebSockets / Socket.IO) per al xat de
+  text entre futurs assistents d'un esdeveniment.
+
+src/app.js
+  Crea i configura l'aplicació Express (middlewares, rutes). NO obre
+  cap port, per poder-la testejar amb supertest.
+
+src/server.js
+  Punt d'arrencada: importa app.js, connecta a la base de dades i obre
+  el port.
+
+tests/
+  Tests de l'API (Jest + supertest).
+
+Dockerfile / package.json
+  Imatge Docker del servei i dependències/scripts de Node.
+
