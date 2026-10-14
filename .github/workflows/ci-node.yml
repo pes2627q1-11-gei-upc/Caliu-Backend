@@ -1,0 +1,22 @@
+name: CI api-node
+
+on:
+  pull_request:
+    paths: ["apps/api-node/**"]
+  push:
+    branches: [main]
+    paths: ["apps/api-node/**"]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/api-node
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+      - run: npm test

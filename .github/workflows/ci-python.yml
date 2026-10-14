@@ -1,0 +1,22 @@
+name: CI python-service
+
+on:
+  pull_request:
+    paths: ["apps/python-service/**"]
+  push:
+    branches: [main]
+    paths: ["apps/python-service/**"]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/python-service
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - run: python -m pytest
