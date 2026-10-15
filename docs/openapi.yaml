@@ -1,0 +1,140 @@
+openapi: 3.0.3
+info:
+  title: Caliu API
+  version: 0.1.0
+  description: |
+    API REST de Caliu (api-node). Contracte compartit amb el frontend.
+    - Les dates són ISO 8601 (si envieu zona horària, p. ex. +02:00, el filtre és exacte).
+    - Les coordenades van en ordre [longitud, latitud] (GeoJSON).
+    - Tots els errors tenen el format { "error": "missatge" }.
+servers:
+  - url: http://localhost:3000
+    description: "Local (Docker Compose). Des de l'emulador Android: http://10.0.2.2:3000"
+
+paths:
+  /health:
+    get:
+      summary: Comprova que el servei funciona
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: ok }
+                  service: { type: string, example: api-node }
+
+  /events:
+    get:
+      summary: Llista d'esdeveniments (amb filtres i paginació)
+      description: |
+        Per defecte retorna els esdeveniments que encara no han acabat, ordenats per data d'inici.
+        Si s'envien lat i lng, s'ordenen per distància i cada resultat inclou "distanceMeters".
+      parameters:
+        - { name: q, in: query, schema: { type: string }, description: "Text lliure: títol, lloc, municipi o etiqueta" }
+        - { name: category, in: query, schema: { type: string }, description: "Una o més categories separades per coma (vegeu /events/categories)", example: "Música,Teatre" }
+        - { name: tag, in: query, schema: { type: string }, description: "Una o més etiquetes separades per coma" }
+        - { name: comarca, in: query, schema: { type: string } }
+        - { name: municipality, in: query, schema: { type: string } }
+        - { name: from, in: query, schema: { type: string, format: date-time }, description: "Inici de l'interval. Per defecte, ara." }
+        - { name: to, in: query, schema: { type: string, format: date-time }, description: "Final de l'interval" }
+        - { name: lat, in: query, schema: { type: number, minimum: -90, maximum: 90 }, description: "Requereix lng" }
+        - { name: lng, in: query, schema: { type: number, minimum: -180, maximum: 180 }, description: "Requereix lat" }
+        - { name: radiusKm, in: query, schema: { type: number, minimum: 0.1, maximum: 500 }, description: "Radi en km. Requereix lat i lng." }
+        - { name: page, in: query, schema: { type: integer, minimum: 1, default: 1 } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+      responses:
+        '200':
+          description: Pàgina d'esdeveniments
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/Event' }
+                  page: { type: integer }
+                  limit: { type: integer }
+                  total: { type: integer, description: "Total d'esdeveniments que compleixen el filtre" }
+        '400':
+          description: Paràmetre invàlid
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /events/categories:
+    get:
+      summary: Categories disponibles per al filtre
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  categories:
+                    type: array
+                    items: { type: string }
+                    example: ["Música", "Teatre", "Gastronomia"]
+
+  /events/{id}:
+    get:
+      summary: Detall d'un esdeveniment
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Event' }
+        '404':
+          description: No trobat
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+components:
+  schemas:
+    Error:
+      type: object
+      properties:
+        error: { type: string }
+    Event:
+      type: object
+      properties:
+        id: { type: string, example: "6710f1c2a1b2c3d4e5f60718" }
+        code: { type: string, example: "seed-001" }
+        title: { type: string }
+        description: { type: string }
+        startDate: { type: string, format: date-time }
+        endDate: { type: string, format: date-time }
+        schedule: { type: string }
+        venue: { type: string }
+        address: { type: string }
+        municipality: { type: string }
+        comarca: { type: string }
+        location:
+          type: object
+          description: "Pot faltar si l'esdeveniment no té coordenades"
+          properties:
+            type: { type: string, enum: [Point] }
+            coordinates:
+              type: array
+              items: { type: number }
+              minItems: 2
+              maxItems: 2
+              example: [2.1734, 41.3851]
+        categories: { type: array, items: { type: string } }
+        tags: { type: array, items: { type: string } }
+        price: { type: number, description: "0 = gratuït. Pot faltar si es desconeix." }
+        url: { type: string }
+        images: { type: array, items: { type: string } }
+        email: { type: string }
+        phone: { type: string }
+        source: { type: string, description: "ingest = dades reals, seed = dades de prova" }
+        distanceMeters: { type: integer, description: "Només present si s'han enviat lat i lng" }
