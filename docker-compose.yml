@@ -34,6 +34,10 @@ services:
     environment:
       MONGO_URI: mongodb://${MONGO_USER}:${MONGO_PASSWORD}@mongo:27017/${MONGO_DB}?authSource=admin
       GEMINI_API_KEY: ${GEMINI_API_KEY}
+      # Ingesta: on són les dades obertes ja carregades a Mongo (vegeu app/ingest)
+      SOURCE_MONGO_URI: ${SOURCE_MONGO_URI:-}
+      SOURCE_DB: ${SOURCE_DB:-}
+      SOURCE_COLLECTION: ${SOURCE_COLLECTION:-}
     # Servei intern: NO es publica cap port a l'exterior.
     # Només api-node hi accedeix, per la xarxa de Docker.
     expose:
