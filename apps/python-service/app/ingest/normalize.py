@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from .categories import categorize
+from .categories import categorize, strip_accents
 
 MADRID = ZoneInfo("Europe/Madrid")
 
@@ -31,16 +31,18 @@ FIELD_MAP: dict[str, list[str]] = {
     "municipality": ["ubicacio.municipi", "municipi"],
     "comarca": ["ubicacio.comarca", "comarca"],
     "location": ["localitzacio", "location"],
-    "etiquetes": ["etiquetes", "tags"],
-    "is_free": ["esGratuit"],
-    "price": ["preu", "entrades", "price"],
+    "etiquetes": ["etiquetes", "tags_categor_es", "tags"],
+    "ambits": ["ambits", "tags_mbits"],
+    # NO es llegeix `esGratuit`: el trigger actual el posa a true quan no hi ha preu.
+    "is_free": ["gratuita"],
+    "price": ["entrades", "preu", "price"],
     "url": ["urlOficial", "url"],
-    "images": ["imatge", "imatges", "images"],
+    "images": ["imatges", "imatge", "images"],
     "email": ["email"],
     "phone": ["telefon", "tel_fon", "phone"],
 }
 
-IMAGE_BASE = "https://agenda.cultura.gencat.cat"
+IMAGE_BASE = "https://agenda.cultura.gencat.cat"  # `cultura.gencat.cat` dona 404 per a aquests recursos
 
 # Límits aproximats de Catalunya: coordenades fora d'aquí són gairebé segur errors de la font.
 LAT_RANGE = (40.4, 42.95)
@@ -71,6 +73,9 @@ TAG_LABELS = {
     "cinema": "Cinema", "festes-populars": "Festes populars", "familiar": "Família",
     "infantil": "Infantil", "tallers": "Tallers", "cultura-popular-i-tradicional": "Cultura popular",
     "literatura": "Literatura", "cicles": "Cicles", "fires": "Fires",
+    "festivals-i-mostres": "Festivals i mostres", "rutes-i-visites": "Rutes i visites",
+    "activitats-virtuals": "Activitats virtuals", "conferencies": "Conferències", "festes": "Festes",
+    "gegants": "Gegants", "espectacles": "Espectacles", "divulgacio": "Divulgació",
 }
 
 
@@ -136,7 +141,12 @@ def split_list(value: Any) -> list[str]:
 
 
 def parse_date(value: Any) -> datetime | None:
-    """-> datetime UTC (tz-aware). Una data sense zona horària es considera hora de Madrid/Barcelona."""
+    """-> datetime UTC (tz-aware).
+
+    Tant un text sense zona com un datetime "naive" (BSON Date) es tracten com a hora de
+    Barcelona: el trigger d'Atlas fa `new Date("2026-10-24T22:00:00.000")` en un servidor UTC,
+    de manera que desa les xifres de l'hora local com si fossin UTC.
+    """
     if value is None or value == "":
         return None
     if isinstance(value, datetime):
@@ -147,20 +157,27 @@ def parse_date(value: Any) -> datetime | None:
         except ValueError:
             return None
     if dt.tzinfo is None:
-        # NOTA: pymongo retorna els datetime "naive" però en UTC. Si la col·lecció font ja
-        # té dates reals (BSON Date) caldria tractar-les com a UTC; vegeu ASSUME_NAIVE_UTC.
-        dt = dt.replace(tzinfo=timezone.utc if _naive_is_utc(value) else MADRID)
+        dt = dt.replace(tzinfo=MADRID)
     return dt.astimezone(timezone.utc)
 
 
-def _naive_is_utc(original: Any) -> bool:
-    # Un datetime (BSON Date) sempre ve en UTC; un string sense zona és hora local.
-    return isinstance(original, datetime)
+def hour_from_schedule(text: Any) -> int | None:
+    """Hora d'inici a partir de `horari` ("A les 18 h", "21.30 h", "20 h Durada: 1 hora").
+    Només s'accepta si l'horari COMENÇA amb l'hora: "de 10 a 22 h" (horari d'obertura) no val."""
+    m = re.match(
+        r"\s*(?:a\s+partir\s+de\s+(?:les|la)\s+|a\s+les\s+|a\s+la\s+|a\s+l')?(\d{1,2})(?:[.:](\d{2}))?\s*h\b",
+        clean_text(text),
+        re.I,
+    )
+    if not m:
+        return None
+    hour = int(m.group(1))
+    return hour if hour < 24 else None
 
 
 def parse_price(value: Any, is_free: Any = None) -> float | None:
-    """0 = gratuït; None = desconegut. `is_free` (booleà de la font) té prioritat."""
-    if is_free is True:
+    """0 = gratuït; None = desconegut. `is_free` és el camp `gratuita` ("Sí"/"No") o un booleà."""
+    if is_free is True or (isinstance(is_free, str) and strip_accents(is_free).strip().lower() == "si"):
         return 0.0
     if value is None:
         return None
@@ -171,7 +188,8 @@ def parse_price(value: Any, is_free: Any = None) -> float | None:
         return None
     if "gratu" in text or "entrada lliure" in text:
         return 0.0
-    m = re.search(r"(\d+(?:[.,]\d+)?)", text)
+    # Només es fia d'un número acompanyat de moneda: "938 123 456" o "a les 18 h" NO són preus.
+    m = re.search(r"(\d+(?:[.,]\d+)?)\s*(?:€|euros?\b)", text) or re.search(r"€\s*(\d+(?:[.,]\d+)?)", text)
     return float(m.group(1).replace(",", ".")) if m else None
 
 
@@ -228,6 +246,8 @@ def parse_images(value: Any) -> list[str]:
             img = "https:" + img
         elif img.startswith("/"):
             img = IMAGE_BASE + img
+        # URLs absolutes antigues (camp `imatge` del trigger anterior) apunten al host que no serveix
+        img = img.replace("://cultura.gencat.cat/", "://agenda.cultura.gencat.cat/", 1)
         if img.startswith("http"):
             out.append(img)
     return out
@@ -296,13 +316,21 @@ def normalize_event(raw: dict) -> dict:
     end = parse_date(pick(raw, "end")) or start
     if end < start or (end - start).days > MAX_EVENT_SPAN_DAYS:
         end = start  # data de fi absurda (p. ex. any 2924): no es pot confiar-hi
+    # La font dóna dates sense hora (00:00). Si no, un esdeveniment d'un sol dia es consideraria
+    # acabat des de la mitjanit del mateix dia i la API (endDate >= ara) mai el mostraria.
+    end_local = end.astimezone(MADRID)
+    if (end_local.hour, end_local.minute, end_local.second) == (0, 0, 0):
+        end = end_local.replace(hour=23, minute=59, second=59).astimezone(timezone.utc)
 
     municipality, comarca = parse_place(pick(raw, "municipality"), pick(raw, "comarca"))
     url_raw = pick(raw, "url")
     tags = tags_from(pick(raw, "etiquetes"))
     local_start = start.astimezone(MADRID)
-    # data_inici a les 00:00 normalment vol dir "hora desconeguda": no es marca com a "Nit"
-    hour = local_start.hour if (local_start.hour or local_start.minute) else None
+    # L'hora real sol anar a `horari` (text lliure); data_inici gairebé sempre és a les 00:00.
+    hour = hour_from_schedule(pick(raw, "schedule"))
+    if hour is None and (local_start.hour or local_start.minute):
+        hour = local_start.hour
+    ambits_text = " ".join(_last_slug(a).replace("-", " ") for a in split_list(pick(raw, "ambits")))
 
     doc = {
         "code": code,
@@ -316,7 +344,7 @@ def normalize_event(raw: dict) -> dict:
         "municipality": municipality,
         "comarca": comarca,
         "categories": categorize(
-            f"{title} {' '.join(tags)} {' '.join(gencat_taxonomy(url_raw))}",
+            f"{title} {' '.join(tags)} {ambits_text} {' '.join(gencat_taxonomy(url_raw))}",
             clean_text(pick(raw, "description")),
             start_hour_local=hour,
         ),

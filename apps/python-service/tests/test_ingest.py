@@ -7,6 +7,7 @@ import pytest
 from app.ingest.categories import EVENT_CATEGORIES, categorize
 from app.ingest.normalize import (
     SkipEvent,
+    hour_from_schedule,
     gencat_taxonomy,
     normalize_event,
     parse_date,
@@ -59,13 +60,14 @@ def test_normalize_real_document():
     assert ev["code"] == "20240605022"
     assert ev["title"] == "Espai Vapor"
     assert ev["startDate"] == datetime(2024, 6, 27, 22, 0, tzinfo=timezone.utc)  # 00:00 CEST -> UTC
-    assert ev["endDate"] == ev["startDate"]  # dataFi 2924 descartada
+    # dataFi 2924 descartada -> es queda a l'últim moment del dia d'inici (23:59:59 locals)
+    assert ev["endDate"] == datetime(2024, 6, 28, 21, 59, 59, tzinfo=timezone.utc)
     assert ev["municipality"] == "Terrassa"
     assert ev["comarca"] == "Vallès Occidental"
     assert ev["location"] == {"type": "Point", "coordinates": [2.0117083, 41.5652128]}
-    assert ev["price"] == 0.0  # esGratuit=True
+    assert "price" not in ev  # esGratuit=True del trigger NO és fiable; preu = "Consultar condicions"
     assert ev["url"] == "https://www.espaivapor.com/"
-    assert ev["images"] == [RAW["imatge"]]
+    assert ev["images"] == [RAW["imatge"].replace("://cultura.gencat.cat/", "://agenda.cultura.gencat.cat/")]
     assert "Música" in ev["categories"]  # ve de l'àmbit codificat a l'URL del cercador
     assert ev["source"] == "ingest"
 
@@ -121,16 +123,31 @@ def test_parse_location_not_geojson():
 
 @pytest.mark.parametrize(
     "text,free,expected",
-    [("Consultar condicions", True, 0.0), ("Gratuït", None, 0.0), ("12,50 €", False, 12.5),
-     ("5€ anticipada", None, 5.0), ("Consultar condicions", False, None), ("", None, None), (None, None, None)],
+    [
+        ("Consultar condicions", "Sí", 0.0),  # gratuita = "Sí"
+        ("Consultar condicions", "No", None),
+        ("Preu: 3 €", "No", 3.0),
+        ("Els concerts són d'accés gratuït.", "No", 0.0),
+        ("12,50 €", None, 12.5),
+        ("", "No", None),
+        (None, None, None),
+        (None, True, 0.0),
+        ("Reserva al 938 123 456", "No", None),  # un telèfon no és un preu
+        ("Entrades a partir de les 18 h", "No", None),
+        ("Aforament limitat a 50 persones", "No", None),
+        ("5 euros", "No", 5.0),
+        ("Preu: € 7,50", "No", 7.5),
+    ],
 )
 def test_parse_price(text, free, expected):
     assert parse_price(text, free) == expected
 
 
-def test_parse_date_naive_string_is_local_and_bson_datetime_is_utc():
+def test_parse_date_naive_values_are_local_time():
     assert parse_date("2026-01-10 10:00:00") == datetime(2026, 1, 10, 9, 0, tzinfo=timezone.utc)  # CET
-    assert parse_date(datetime(2026, 1, 10, 10, 0)) == datetime(2026, 1, 10, 10, 0, tzinfo=timezone.utc)
+    # un BSON Date del trigger porta l'hora local com si fos UTC: es llegeix com a hora local
+    assert parse_date(datetime(2026, 1, 10, 10, 0)) == datetime(2026, 1, 10, 9, 0, tzinfo=timezone.utc)
+    assert parse_date(datetime(2026, 7, 10, 10, 0)) == datetime(2026, 7, 10, 8, 0, tzinfo=timezone.utc)  # CEST
     assert parse_date("no és una data") is None
 
 
@@ -190,3 +207,62 @@ def test_build_operation_unsets_missing_optionals():
     assert set(upd["$unset"]) == {"location", "price"}
     assert "createdAt" in upd["$setOnInsert"] and "createdAt" not in upd["$set"]
 
+
+
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        ("A les 18 h", 18),
+        ("21.30 h", 21),
+        ("A partir de les 18.30 h", 18),
+        ("20 h Durada aproximada: 1 hora i 30 minuts.", 20),
+        ("Dimarts: de 16 a 20 h De dimecres a dissabtes: d'11 a 22 h", None),  # horari d'obertura
+        ("1 hora de durada", None),
+        ("", None),
+        (None, None),
+    ],
+)
+def test_hour_from_schedule(text, expected):
+    assert hour_from_schedule(text) == expected
+
+
+def test_single_day_event_stays_active_all_day():
+    ev = normalize_event({"codiGencat": "1", "titol": "Fira", "dataInici": "2026-05-02 00:00:00", "dataFi": "2026-05-02 00:00:00"})
+    assert ev["endDate"] == datetime(2026, 5, 2, 21, 59, 59, tzinfo=timezone.utc)  # 23:59:59 CEST
+
+
+def test_night_comes_from_schedule_not_from_midnight_date():
+    base = {"codiGencat": "1", "titol": "x", "dataInici": "2026-05-02 00:00:00"}
+    assert "Nit" in normalize_event({**base, "horari": "21.30 h"})["categories"]
+    assert "Nit" not in normalize_event({**base, "horari": "A les 18 h"})["categories"]
+
+
+def test_raw_dataset_fields_and_relative_images():
+    raw = {
+        "codiGencat": "20260430004",
+        "titol": "30 elefants sota un paraigua",
+        "dataInici": "2026-05-30 00:00:00",
+        "dataFi": "2026-05-30 00:00:00",
+        "horari": "17 h",
+        "tags_categor_es": "agenda:categories/teatre,agenda:categories/infantil",
+        "tags_mbits": "agenda:ambits/espectacles",
+        "entrades": "Preu: 3 €",
+        "gratuita": "No",
+        "espai": 'Centre Cultural Municipal "Lo Casino"',
+        "imatges": "/content/dam/agenda/a.jpg,/content/dam/agenda/b.jpg",
+        "esGratuit": True,  # valor erroni del trigger: s'ha d'ignorar
+    }
+    ev = normalize_event(raw)
+    assert ev["price"] == 3.0
+    assert ev["venue"] == 'Centre Cultural Municipal "Lo Casino"'
+    assert ev["tags"] == ["Teatre", "Infantil"]
+    assert "Teatre" in ev["categories"]
+    assert ev["images"] == ["https://agenda.cultura.gencat.cat/content/dam/agenda/a.jpg", "https://agenda.cultura.gencat.cat/content/dam/agenda/b.jpg"]
+
+
+def test_legacy_absolute_image_host_is_rewritten():
+    ev = normalize_event({
+        "codiGencat": "1", "titol": "x", "dataInici": "2026-01-01 10:00:00",
+        "imatge": "https://cultura.gencat.cat/content/dam/agenda/a.jpg",
+    })
+    assert ev["images"] == ["https://agenda.cultura.gencat.cat/content/dam/agenda/a.jpg"]
