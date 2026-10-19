@@ -102,3 +102,53 @@ export function parseEventQuery(query = {}, now = new Date()) {
 
   return { filter, geo, page, limit, skip: (page - 1) * limit };
 }
+
+// --- Cerca per text (GET /events/search) -------------------------------------------------
+const MAX_SEARCH_LENGTH = 100;
+const MAX_SEARCH_TERMS = 8;
+
+// Lletres que es consideren equivalents amb/sense accent: "musica" troba "Música", "classica" troba "clàssica".
+const ACCENT_CLASSES = {
+  a: 'aàáâäAÀÁÂÄ',
+  e: 'eèéêëEÈÉÊË',
+  i: 'iìíîïIÌÍÎÏ',
+  o: 'oòóôöOÒÓÔÖ',
+  u: 'uùúûüUÙÚÛÜ',
+  c: 'cçCÇ',
+  n: 'nñNÑ',
+};
+
+const stripAccents = (s) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+// Regex que ignora majúscules i accents. El text de l'usuari s'escapa: mai s'interpreta com a regex.
+export function accentInsensitiveRegex(text) {
+  const escaped = escapeRegex(stripAccents(text));
+  const pattern = escaped.replace(/[aeioucn]/gi, (ch) => `[${ACCENT_CLASSES[ch.toLowerCase()]}]`);
+  return new RegExp(pattern, 'i');
+}
+
+// Mateixos filtres, paginació i ordre que GET /events, però amb "q" obligatori i avaluat NOMÉS
+// contra el títol i les etiquetes. Cada paraula de "q" ha de coincidir amb el títol O amb alguna
+// etiqueta (així "teatre infantil" troba un esdeveniment amb aquestes dues etiquetes).
+export function parseSearchQuery(query = {}, now = new Date()) {
+  const raw = Array.isArray(query.q) ? query.q.join(' ') : query.q;
+  if (typeof raw !== 'string' || !raw.trim()) {
+    throw new QueryError('Paràmetre "q" obligatori (text a cercar)');
+  }
+  const q = raw.trim();
+  if (q.length > MAX_SEARCH_LENGTH) {
+    throw new QueryError(`Paràmetre "q" massa llarg (màxim ${MAX_SEARCH_LENGTH} caràcters)`);
+  }
+
+  // "q" no es passa a parseEventQuery: allà també cerca a lloc i municipi, i aquí no volem això.
+  const { q: _q, ...rest } = query;
+  const parsed = parseEventQuery(rest, now);
+
+  const terms = q.split(/\s+/).slice(0, MAX_SEARCH_TERMS);
+  parsed.filter.$and = terms.map((term) => {
+    const rx = accentInsensitiveRegex(term);
+    return { $or: [{ title: rx }, { tags: rx }] };
+  });
+
+  return { ...parsed, q };
+}
