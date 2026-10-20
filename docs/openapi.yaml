@@ -81,6 +81,24 @@ paths:
                     items: { type: string }
                     example: ["Música", "Teatre", "Gastronomia"]
 
+  /events/search:
+    get:
+      summary: Cerca d'esdeveniments per títol o etiqueta
+      parameters:
+        - { name: q, in: query, required: true, schema: { type: string }, description: "Text a cercar en títols o etiquetes" }
+      responses:
+        '200':
+          description: Llista d'esdeveniments coincidents
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/Event' }
+                  total: { type: integer }
+
   /events/{id}:
     get:
       summary: Detall d'un esdeveniment

@@ -60,3 +60,29 @@ export async function getEvent(req, res, next) {
 export function listCategories(_req, res) {
   res.json({ categories: EVENT_CATEGORIES });
 }
+
+export async function searchEvents(req, res, next) {
+  try {
+    const q = req.query.q !== undefined ? String(req.query.q).trim() : '';
+
+    if (!q) {
+      return res.json({ items: [], total: 0 });
+    }
+
+    const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const rx = new RegExp(escapeRegex(q), 'i'); 
+
+    const filter = {
+      $or: [{ title: rx }, { tags: rx }]
+    };
+
+    const [items, total] = await Promise.all([
+      Event.find(filter).sort({ startDate: 1, _id: 1 }).limit(20).lean(),
+      Event.countDocuments(filter)
+    ]);
+
+    res.json({ items: items.map(toApi), total });
+  } catch (err) {
+    next(err);
+  }
+}
