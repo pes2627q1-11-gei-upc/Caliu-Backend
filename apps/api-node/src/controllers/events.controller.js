@@ -86,3 +86,51 @@ export async function searchEvents(req, res, next) {
     next(err);
   }
 }
+
+export const getEvents = async (req, res, next) => {
+  try {
+    const {
+      q,
+      comarca,
+      municipality,
+      municipi,
+      page = 1,
+      limit = 20
+    } = req.query;
+
+    const filter = {};
+
+    if (q) {
+      filter.$or = [
+        { nom: { $regex: q,$options: 'i' } },
+        { descripcio: { $regex: q,$options: 'i' } },
+        { etiquetes: { $regex: q,$options: 'i' } }
+      ];
+    }
+
+    if (comarca) {
+      filter.comarca = { $regex: new RegExp(`^${comarca.trim()}$`, 'i') };
+    }
+
+    const targetMunicipality = municipality || municipi;
+    if (targetMunicipality) {
+      filter.municipi = { $regex: new RegExp(`^${targetMunicipality.trim()}$`, 'i') };
+    }
+
+    const skip = (Number(page) - 1) * Number(limit);
+
+    const [items, total] = await Promise.all([
+      Event.find(filter).skip(skip).limit(Number(limit)),
+      Event.countDocuments(filter)
+    ]);
+
+    res.status(200).json({
+      items,
+      page: Number(page),
+      limit: Number(limit),
+      total
+    });
+  } catch (error) {
+    next(error);
+  }
+};

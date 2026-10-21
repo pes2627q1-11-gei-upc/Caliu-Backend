@@ -43,4 +43,18 @@ describe('Cerca d\'esdeveniments: GET /events/search', () => {
     expect(response.body.items.length).toBeGreaterThan(0);
   });
 
+  test('AC5: Filtrar per comarca retorna coincidències', async () => {
+    const response = await request(app).get('/events?comarca=Barcelonès');
+
+    expect(response.status).toBe(200);
+    expect(response.body).toHaveProperty('items');
+    expect(response.body.items).toBeInstanceOf(Array);
+  });
+
+  test('AC6: Filtrar per comarca i municipality combinats', async () => {
+    const response = await request(app).get('/events?comarca=Barcelonès&municipality=Barcelona');
+
+    expect(response.status).toBe(200);
+    expect(response.body).toHaveProperty('items');
+  });
 });
