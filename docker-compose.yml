@@ -19,7 +19,9 @@ services:
     restart: unless-stopped
     environment:
       PORT: 3000
-      MONGO_URI: mongodb://${MONGO_USER}:${MONGO_PASSWORD}@mongo:27017/${MONGO_DB}?authSource=admin
+      # Base de dades de l'API: per defecte el Mongo local d'aquest compose. Per usar la d'Atlas (on el trigger
+      # omple la col·lecció `esdeveniments`) definiu API_MONGO_URI al .env, amb el nom de BD: .../Caliu?...
+      MONGO_URI: ${API_MONGO_URI:-mongodb://${MONGO_USER}:${MONGO_PASSWORD}@mongo:27017/${MONGO_DB}?authSource=admin}
       JWT_SECRET: ${JWT_SECRET}
       PYTHON_SERVICE_URL: ${PYTHON_SERVICE_URL}
     ports:
@@ -32,12 +34,8 @@ services:
     build: ./apps/python-service
     restart: unless-stopped
     environment:
-      MONGO_URI: mongodb://${MONGO_USER}:${MONGO_PASSWORD}@mongo:27017/${MONGO_DB}?authSource=admin
+      MONGO_URI: ${API_MONGO_URI:-mongodb://${MONGO_USER}:${MONGO_PASSWORD}@mongo:27017/${MONGO_DB}?authSource=admin}
       GEMINI_API_KEY: ${GEMINI_API_KEY}
-      # Ingesta: on són les dades obertes ja carregades a Mongo (vegeu app/ingest)
-      SOURCE_MONGO_URI: ${SOURCE_MONGO_URI:-}
-      SOURCE_DB: ${SOURCE_DB:-}
-      SOURCE_COLLECTION: ${SOURCE_COLLECTION:-}
     # Servei intern: NO es publica cap port a l'exterior.
     # Només api-node hi accedeix, per la xarxa de Docker.
     expose:

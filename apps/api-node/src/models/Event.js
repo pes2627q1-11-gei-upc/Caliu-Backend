@@ -63,4 +63,6 @@ eventSchema.index({ location: '2dsphere' });
 eventSchema.index({ startDate: 1, endDate: 1 });
 eventSchema.index({ categories: 1 });
 
-export default mongoose.model('Event', eventSchema);
+// ÚNICA col·lecció de la base de dades: `esdeveniments`. L'omple el trigger d'Atlas
+// (docs/atlas/daily_agenda_sync.js) directament amb aquest esquema. Si es canvia aquí, cal canviar-ho allà.
+export default mongoose.model('Event', eventSchema, 'esdeveniments');

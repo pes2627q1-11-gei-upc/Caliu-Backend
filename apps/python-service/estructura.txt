@@ -1,17 +1,11 @@
 ---------------------------------------------------------------------
-apps/python-service  ->  INGESTA I IA (Python + FastAPI)
+apps/python-service  ->  IA (Python + FastAPI)
 ---------------------------------------------------------------------
-Servei intern (no accessible des de fora). S'encarrega d'importar
-les dades culturals i de coordinar el xatbot.
+Servei intern (no accessible des de fora). S'encarrega de coordinar el xatbot.
 
-app/ingest/
-  Pipeline d'ingesta diària de l'Agenda Cultural de Catalunya:
-    - client de Dades Obertes (descàrrega de dades)
-    - neteja i normalització (camps incomplets, formats)
-    - deduplicació per codi d'esdeveniment
-    - upsert a MongoDB (col·lecció events)
-    - planificador (scheduler) de l'execució diària, programada en
-      hores vall per no saturar la Generalitat
+(La ingesta d'esdeveniments ja NO és aquí: la fa el trigger d'Atlas
+docs/atlas/daily_agenda_sync.js, que escriu directament a la col·lecció
+`esdeveniments`, l'única que llegeix l'API.)
 
 app/chatbot/
   Lògica de l'assistent conversacional amb l'API de Gemini: prompts,
@@ -19,8 +13,7 @@ app/chatbot/
   i respostes multilingües.
 
 app/routers/
-  Endpoints interns de FastAPI (p. ex. /health, llançar ingesta
-  manualment, /chat). Només els crida api-node.
+  Endpoints interns de FastAPI (p. ex. /health, /chat). Només els crida api-node.
 
 app/main.py
   Punt d'entrada de FastAPI.

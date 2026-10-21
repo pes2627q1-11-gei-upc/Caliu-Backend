@@ -1,5 +1,5 @@
 // Carrega esdeveniments FICTICIS perquè el frontend pugui treballar abans que
-// la ingesta real (python-service) estigui feta.
+// el trigger d'Atlas hagi omplert `esdeveniments`. NO l'executeu contra la BD d'Atlas (és la de producció).
 //
 //   npm run seed          -> esborra els de prova i en torna a crear (dates relatives a avui)
 //   npm run seed:clear    -> només esborra els de prova
