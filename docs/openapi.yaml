@@ -36,8 +36,9 @@ paths:
         - { name: q, in: query, schema: { type: string }, description: "Text lliure: títol, lloc, municipi o etiqueta" }
         - { name: category, in: query, schema: { type: string }, description: "Una o més categories separades per coma (vegeu /events/categories)", example: "Música,Teatre" }
         - { name: tag, in: query, schema: { type: string }, description: "Una o més etiquetes separades per coma" }
-        - { name: comarca, in: query, schema: { type: string } }
-        - { name: municipality, in: query, schema: { type: string } }
+        - { name: comarca, in: query, schema: { type: string }, description: "Una o més comarques separades per coma. Nom complet, sense distingir majúscules ni accents.", example: "Gironès,Baix Ebre" }
+        - { name: municipi, in: query, schema: { type: string }, description: "Un o més municipis separats per coma. Nom complet, sense distingir majúscules ni accents (\"Vilafranca del Penedes\" i \"Vilafranca del Penedès\" coincideixen).", example: "Girona,Salt" }
+        - { name: municipality, in: query, deprecated: true, schema: { type: string }, description: "Àlies antic de \"municipi\"." }
         - { name: from, in: query, schema: { type: string, format: date-time }, description: "Inici de l'interval. Per defecte, ara." }
         - { name: to, in: query, schema: { type: string, format: date-time }, description: "Final de l'interval" }
         - { name: lat, in: query, schema: { type: number, minimum: -90, maximum: 90 }, description: "Requereix lng" }

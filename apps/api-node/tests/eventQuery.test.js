@@ -42,6 +42,76 @@ describe('parseEventQuery', () => {
     ).toThrow(QueryError);
   });
 
+  describe('filtre per comarca i municipi', () => {
+    const matches = (rx, text) => rx.test(text);
+
+    it('sense paràmetres no afegeix cap filtre de lloc', () => {
+      const { filter } = parseEventQuery({}, NOW);
+      expect(filter.comarca).toBeUndefined();
+      expect(filter.municipality).toBeUndefined();
+    });
+
+    it('accepta "municipi" i filtra el camp municipality', () => {
+      const { filter } = parseEventQuery({ municipi: 'Girona' }, NOW);
+      expect(filter.municipality.$in).toHaveLength(1);
+      expect(matches(filter.municipality.$in[0], 'Girona')).toBe(true);
+    });
+
+    it('manté "municipality" com a àlies de "municipi"', () => {
+      const { filter } = parseEventQuery({ municipality: 'Girona' }, NOW);
+      expect(matches(filter.municipality.$in[0], 'Girona')).toBe(true);
+    });
+
+    it('combina "municipi" i "municipality" si venen tots dos', () => {
+      const { filter } = parseEventQuery({ municipi: 'Girona', municipality: 'Salt' }, NOW);
+      expect(filter.municipality.$in).toHaveLength(2);
+    });
+
+    it('la coincidència és del nom complet: "Barcelona" no troba "Barcelonès"', () => {
+      const { filter } = parseEventQuery({ municipi: 'Barcelona', comarca: 'Barcelonès' }, NOW);
+      const [mun] = filter.municipality.$in;
+      const [com] = filter.comarca.$in;
+      expect(matches(mun, 'Barcelona')).toBe(true);
+      expect(matches(mun, 'Barcelonès')).toBe(false);
+      expect(matches(mun, 'Nova Barcelona')).toBe(false);
+      expect(matches(com, 'Barcelonès')).toBe(true);
+      expect(matches(com, 'Barcelona')).toBe(false);
+    });
+
+    it('ignora majúscules i accents en ambdós sentits', () => {
+      const { filter } = parseEventQuery({ comarca: 'valles occidental', municipi: 'VILAFRANCA DEL PENEDÈS' }, NOW);
+      expect(matches(filter.comarca.$in[0], 'Vallès Occidental')).toBe(true);
+      expect(matches(filter.municipality.$in[0], 'Vilafranca del Penedes')).toBe(true);
+      expect(matches(filter.municipality.$in[0], 'Vilafranca del Penedès')).toBe(true);
+    });
+
+    it('accepta diversos valors separats per coma o repetits', () => {
+      const a = parseEventQuery({ comarca: 'Gironès, Baix Ebre' }, NOW).filter;
+      expect(a.comarca.$in).toHaveLength(2);
+      expect(matches(a.comarca.$in[1], 'Baix Ebre')).toBe(true);
+      const b = parseEventQuery({ comarca: ['Gironès', 'Baix Ebre'] }, NOW).filter;
+      expect(b.comarca.$in).toHaveLength(2);
+    });
+
+    it('ignora valors buits', () => {
+      const { filter } = parseEventQuery({ comarca: '  ', municipi: ',' }, NOW);
+      expect(filter.comarca).toBeUndefined();
+      expect(filter.municipality).toBeUndefined();
+    });
+
+    it('escapa els caràcters especials: no s\'interpreten com a regex', () => {
+      const { filter } = parseEventQuery({ municipi: '.*' }, NOW);
+      const [rx] = filter.municipality.$in;
+      expect(matches(rx, 'Girona')).toBe(false);
+      expect(matches(rx, '.*')).toBe(true);
+    });
+
+    it('també s\'aplica a la cerca per text (GET /events/search)', () => {
+      const { filter } = parseSearchQuery({ q: 'jazz', comarca: 'Gironès' }, NOW);
+      expect(matches(filter.comarca.$in[0], 'Gironès')).toBe(true);
+    });
+  });
+
   it('escapa els caràcters especials de la cerca de text', () => {
     const r = parseEventQuery({ q: 'a.b' }, NOW);
     const rx = r.filter.$or[0].title;
