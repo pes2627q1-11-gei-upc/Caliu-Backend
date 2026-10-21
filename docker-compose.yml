@@ -21,6 +21,7 @@ services:
       PORT: 3000
       MONGO_URI: mongodb://${MONGO_USER}:${MONGO_PASSWORD}@mongo:27017/${MONGO_DB}?authSource=admin
       JWT_SECRET: ${JWT_SECRET}
+      JWT_TTL_SECONDS: ${JWT_TTL_SECONDS:-3600}
       PYTHON_SERVICE_URL: ${PYTHON_SERVICE_URL}
     ports:
       - "${NODE_PORT:-3000}:3000"

@@ -1,5 +1,7 @@
 import express from 'express';
 import eventsRoutes from './routes/events.routes.js';
+import authRoutes from './routes/auth.routes.js';
+import usersRoutes from './routes/users.routes.js';
 import { errorHandler, notFound } from './middlewares/errorHandler.js';
 
 // Aquí només es configura l'aplicació. NO s'obre cap port (vegeu server.js),
@@ -13,6 +15,8 @@ app.get('/health', (_req, res) => {
 });
 
 app.use('/events', eventsRoutes);
+app.use('/auth', authRoutes);
+app.use('/users', usersRoutes);
 
 // Sempre al final
 app.use(notFound);
