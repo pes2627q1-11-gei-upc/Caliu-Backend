@@ -3,6 +3,7 @@
 
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
+export const DEFAULT_NEARBY_RADIUS_KM = 10;
 
 export class QueryError extends Error {
   constructor(message) {
@@ -158,4 +159,16 @@ export function parseSearchQuery(query = {}, now = new Date()) {
   });
 
   return { ...parsed, q };
+}
+
+// --- Esdeveniments propers (GET /events/nearby) --------------------------------------------
+// Mateixos filtres, paginació i resposta que GET /events, però "lat" i "lng" són obligatoris i,
+// si no s'envia "radiusKm", s'usa un radi per defecte (així sempre hi ha un límit de distància).
+// El resultat sempre va ordenat per distància i cada element inclou "distanceMeters".
+export function parseNearbyQuery(query = {}, now = new Date()) {
+  if (query.lat === undefined || query.lng === undefined) {
+    throw new QueryError('Paràmetres \"lat\" i \"lng\" obligatoris');
+  }
+  const withRadius = { ...query, radiusKm: query.radiusKm ?? DEFAULT_NEARBY_RADIUS_KM };
+  return parseEventQuery(withRadius, now);
 }

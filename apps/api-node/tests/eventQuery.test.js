@@ -1,6 +1,8 @@
 import {
   accentInsensitiveRegex,
+  DEFAULT_NEARBY_RADIUS_KM,
   parseEventQuery,
+  parseNearbyQuery,
   parseSearchQuery,
   QueryError,
 } from '../src/domain/eventQuery.js';
@@ -221,5 +223,35 @@ describe('parseSearchQuery', () => {
     expect(r.limit).toBe(10);
     expect(r.skip).toBe(10);
     expect(r.q).toBe('jazz');
+  });
+});
+
+describe('parseNearbyQuery', () => {
+  it('exigeix lat i lng', () => {
+    expect(() => parseNearbyQuery({}, NOW)).toThrow(QueryError);
+    expect(() => parseNearbyQuery({ lat: '41.38' }, NOW)).toThrow(QueryError);
+    expect(() => parseNearbyQuery({ lng: '2.17' }, NOW)).toThrow(QueryError);
+  });
+
+  it('usa el radi per defecte quan no s\'envia radiusKm', () => {
+    const r = parseNearbyQuery({ lat: '41.38', lng: '2.17' }, NOW);
+    expect(r.geo).toEqual({ lat: 41.38, lng: 2.17, maxDistance: DEFAULT_NEARBY_RADIUS_KM * 1000 });
+  });
+
+  it('respecta radiusKm si s\'envia', () => {
+    const r = parseNearbyQuery({ lat: '41.38', lng: '2.17', radiusKm: '3' }, NOW);
+    expect(r.geo.maxDistance).toBe(3000);
+  });
+
+  it('valida coordenades i radi com GET /events', () => {
+    expect(() => parseNearbyQuery({ lat: '99', lng: '2' }, NOW)).toThrow(QueryError);
+    expect(() => parseNearbyQuery({ lat: '41', lng: '2', radiusKm: '0' }, NOW)).toThrow(QueryError);
+  });
+
+  it('manté filtres i paginació', () => {
+    const r = parseNearbyQuery({ lat: '41.38', lng: '2.17', category: 'Música', page: '2', limit: '5' }, NOW);
+    expect(r.filter.categories).toEqual({ $in: ['Música'] });
+    expect(r.page).toBe(2);
+    expect(r.skip).toBe(5);
   });
 });
