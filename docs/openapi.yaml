@@ -36,8 +36,9 @@ paths:
         - { name: q, in: query, schema: { type: string }, description: "Text lliure: títol, lloc, municipi o etiqueta" }
         - { name: category, in: query, schema: { type: string }, description: "Una o més categories separades per coma (vegeu /events/categories)", example: "Música,Teatre" }
         - { name: tag, in: query, schema: { type: string }, description: "Una o més etiquetes separades per coma" }
-        - { name: comarca, in: query, schema: { type: string } }
-        - { name: municipality, in: query, schema: { type: string } }
+        - { name: comarca, in: query, schema: { type: string }, description: "Una o més comarques separades per coma. Nom complet, sense distingir majúscules ni accents.", example: "Gironès,Baix Ebre" }
+        - { name: municipi, in: query, schema: { type: string }, description: "Un o més municipis separats per coma. Nom complet, sense distingir majúscules ni accents (\"Vilafranca del Penedes\" i \"Vilafranca del Penedès\" coincideixen).", example: "Girona,Salt" }
+        - { name: municipality, in: query, deprecated: true, schema: { type: string }, description: "Àlies antic de \"municipi\"." }
         - { name: from, in: query, schema: { type: string, format: date-time }, description: "Inici de l'interval. Per defecte, ara." }
         - { name: to, in: query, schema: { type: string, format: date-time }, description: "Final de l'interval" }
         - { name: lat, in: query, schema: { type: number, minimum: -90, maximum: 90 }, description: "Requereix lng" }
@@ -80,6 +81,48 @@ paths:
                     type: array
                     items: { type: string }
                     example: ["Música", "Teatre", "Gastronomia"]
+
+  /events/nearby:
+    get:
+      summary: Esdeveniments propers a una ubicació
+      description: |
+        Retorna els esdeveniments que encara no han acabat dins d'un radi al voltant de (lat, lng),
+        ordenats de més a menys a prop. Cada resultat inclou "distanceMeters" (metres enters).
+        Accepta els mateixos filtres i la mateixa paginació que GET /events (category, tag, comarca,
+        municipi, from, to, page, limit). Si no s'envia radiusKm, s'usa un radi de 10 km.
+      parameters:
+        - { name: lat, in: query, required: true, schema: { type: number, minimum: -90, maximum: 90 }, example: 41.3874 }
+        - { name: lng, in: query, required: true, schema: { type: number, minimum: -180, maximum: 180 }, example: 2.1686 }
+        - { name: radiusKm, in: query, schema: { type: number, minimum: 0.1, maximum: 500, default: 10 }, description: "Radi en km" }
+        - { name: category, in: query, schema: { type: string }, description: "Una o més categories separades per coma" }
+        - { name: from, in: query, schema: { type: string, format: date-time }, description: "Inici de l'interval. Per defecte, ara." }
+        - { name: to, in: query, schema: { type: string, format: date-time } }
+        - { name: page, in: query, schema: { type: integer, minimum: 1, default: 1 } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+      responses:
+        '200':
+          description: Pàgina d'esdeveniments ordenats per distància
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      allOf:
+                        - { $ref: '#/components/schemas/Event' }
+                        - type: object
+                          properties:
+                            distanceMeters: { type: integer, example: 635 }
+                  page: { type: integer }
+                  limit: { type: integer }
+                  total: { type: integer }
+        '400':
+          description: Falta lat o lng, o algun paràmetre és invàlid
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
 
   /events/{id}:
     get:

@@ -3,6 +3,7 @@
 
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
+export const DEFAULT_NEARBY_RADIUS_KM = 10;
 
 export class QueryError extends Error {
   constructor(message) {
@@ -63,10 +64,16 @@ export function parseEventQuery(query = {}, now = new Date()) {
   const tags = toList(query.tag);
   if (tags.length) filter.tags = { $in: tags };
 
-  // --- Comarca / municipi (exacte, sense distingir majúscules)
-  for (const field of ['comarca', 'municipality']) {
-    const v = query[field] !== undefined ? String(query[field]).trim() : '';
-    if (v) filter[field] = new RegExp(`^${escapeRegex(v)}$`, 'i');
+  // --- Comarca / municipi: nom complet, sense distingir majúscules ni accents.
+  // Accepten diversos valors ("a,b" o ?x=a&x=b): l'esdeveniment ha de coincidir amb algun.
+  // "municipi" és el nom oficial del paràmetre; "municipality" es manté com a àlies.
+  const comarques = toList(query.comarca);
+  if (comarques.length) {
+    filter.comarca = { $in: comarques.map((v) => accentInsensitiveRegex(v, { exact: true })) };
+  }
+  const municipis = [...toList(query.municipi), ...toList(query.municipality)];
+  if (municipis.length) {
+    filter.municipality = { $in: municipis.map((v) => accentInsensitiveRegex(v, { exact: true })) };
   }
 
   // --- Cerca de text lliure: títol, lloc, municipi o etiquetes
@@ -121,10 +128,11 @@ const ACCENT_CLASSES = {
 const stripAccents = (s) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 
 // Regex que ignora majúscules i accents. El text de l'usuari s'escapa: mai s'interpreta com a regex.
-export function accentInsensitiveRegex(text) {
+// Per defecte busca el text com a fragment; amb { exact: true } ha de coincidir amb tot el camp.
+export function accentInsensitiveRegex(text, { exact = false } = {}) {
   const escaped = escapeRegex(stripAccents(text));
   const pattern = escaped.replace(/[aeioucn]/gi, (ch) => `[${ACCENT_CLASSES[ch.toLowerCase()]}]`);
-  return new RegExp(pattern, 'i');
+  return new RegExp(exact ? `^${pattern}$` : pattern, 'i');
 }
 
 // Mateixos filtres, paginació i ordre que GET /events, però amb "q" obligatori i avaluat NOMÉS
@@ -151,4 +159,16 @@ export function parseSearchQuery(query = {}, now = new Date()) {
   });
 
   return { ...parsed, q };
+}
+
+// --- Esdeveniments propers (GET /events/nearby) --------------------------------------------
+// Mateixos filtres, paginació i resposta que GET /events, però "lat" i "lng" són obligatoris i,
+// si no s'envia "radiusKm", s'usa un radi per defecte (així sempre hi ha un límit de distància).
+// El resultat sempre va ordenat per distància i cada element inclou "distanceMeters".
+export function parseNearbyQuery(query = {}, now = new Date()) {
+  if (query.lat === undefined || query.lng === undefined) {
+    throw new QueryError('Paràmetres \"lat\" i \"lng\" obligatoris');
+  }
+  const withRadius = { ...query, radiusKm: query.radiusKm ?? DEFAULT_NEARBY_RADIUS_KM };
+  return parseEventQuery(withRadius, now);
 }
