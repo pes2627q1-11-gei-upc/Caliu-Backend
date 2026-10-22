@@ -12,6 +12,161 @@ servers:
     description: "Local (Docker Compose). Des de l'emulador Android: http://10.0.2.2:3000"
 
 paths:
+  /auth/register:
+    post:
+      summary: "#39 Registra un compte amb email i password"
+      description: Normalitza el correu amb trim i minúscules. No inicia sessió automàticament.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Credentials' }
+            example: { email: persona@example.cat, password: Exemple-password-42 }
+      responses:
+        '201':
+          description: Compte creat
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [user]
+                additionalProperties: false
+                properties:
+                  user: { $ref: '#/components/schemas/User' }
+              example:
+                user: { id: '6710f1c2a1b2c3d4e5f60718', email: persona@example.cat, username: null, preferences: [] }
+        '400': { $ref: '#/components/responses/InvalidInput' }
+        '409': { $ref: '#/components/responses/EmailConflict' }
+        '413': { $ref: '#/components/responses/TooLarge' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /auth/login:
+    post:
+      summary: "#40 Inicia sessió"
+      description: |
+        Retorna JWT HS256 amb expiració (JWT_TTL_SECONDS, per defecte 3600 segons).
+        Les credencials mal formades retornen 400; un correu inexistent o password
+        incorrecte de format vàlid retornen el mateix 401. Cache-Control és no-store.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Credentials' }
+            example: { email: persona@example.cat, password: Exemple-password-42 }
+      responses:
+        '200':
+          description: Sessió iniciada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LoginResponse' }
+              example:
+                user: { id: '6710f1c2a1b2c3d4e5f60718', email: persona@example.cat, username: null, preferences: [] }
+                token: '<access-token>'
+                tokenType: Bearer
+                expiresIn: 3600
+        '400': { $ref: '#/components/responses/InvalidInput' }
+        '401':
+          description: Credencials incorrectes (mateix error per compte inexistent o password erroni)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { error: Credencials incorrectes }
+        '413': { $ref: '#/components/responses/TooLarge' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /auth/logout:
+    post:
+      summary: "#38 Tanca totes les sessions de l'usuari"
+      description: |
+        Incrementa tokenVersion a MongoDB i invalida TOTS els JWT previs del compte.
+        Conserva perfil i preferències. El client ha d'eliminar el token del seu emmagatzematge.
+        No requereix cos. Reutilitzar el token després del logout retorna 401.
+        No cancel·la peticions que ja s'hagin completat o lectures en curs.
+      security: [{ bearerAuth: [] }]
+      responses:
+        '204': { description: Sessions invalidades; sense cos de resposta }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /users/me:
+    get:
+      summary: "#34 Consulta el perfil propi"
+      description: El subject del JWT determina l'usuari; no accepta cap identificador de perfil del client.
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Perfil públic propi (Cache-Control no-store)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+              example: { id: '6710f1c2a1b2c3d4e5f60718', email: persona@example.cat, username: Nuria_42, preferences: [Música, Cinema] }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    patch:
+      summary: "#34 Modifica el username propi"
+      description: |
+        Només permet username. Qualsevol camp addicional (email, password, role, id,
+        tokenVersion, preferences...) retorna 400. El username no és únic provisionalment,
+        pendent de Cultura't. Aplica trim i normalització Unicode NFC.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProfileUpdate' }
+            example: { username: Nuria_42 }
+      responses:
+        '200':
+          description: Perfil actualitzat
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+              example: { id: '6710f1c2a1b2c3d4e5f60718', email: persona@example.cat, username: Nuria_42, preferences: [] }
+        '400': { $ref: '#/components/responses/InvalidInput' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '413': { $ref: '#/components/responses/TooLarge' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /users/me/preferences:
+    get:
+      summary: "#37 Consulta les preferències pròpies"
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Preferències desades
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Preferences' }
+              example: { preferences: [Música, Cinema] }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    put:
+      summary: "#37 Substitueix totes les preferències pròpies"
+      description: |
+        Una llista buida elimina totes les preferències. Aplica trim i Unicode NFC,
+        i elimina duplicats sense distingir majúscules (conserva la primera grafia).
+        No restringeix a EVENT_CATEGORIES: el catàleg definitiu de #37 està pendent de Cultura't.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Preferences' }
+            examples:
+              selection: { value: { preferences: [Música, Cinema, Dansa] } }
+              clear: { value: { preferences: [] } }
+      responses:
+        '200':
+          description: Preferències substituïdes
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Preferences' }
+              example: { preferences: [Música, Cinema, Dansa] }
+        '400': { $ref: '#/components/responses/InvalidInput' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '413': { $ref: '#/components/responses/TooLarge' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
   /health:
     get:
       summary: Comprova que el servei funciona
@@ -142,9 +297,112 @@ paths:
               schema: { $ref: '#/components/schemas/Error' }
 
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: "Authorization: Bearer <token>; HS256, issuer caliu-api, audience caliu-android"
+  responses:
+    InvalidInput:
+      description: Camps obligatoris absents, tipus/format/longitud invàlids, camps desconeguts o JSON mal format
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: Camps de la petició no vàlids }
+    Unauthenticated:
+      description: Token absent, invàlid, expirat, revocat o usuari inexistent
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: Sessió no vàlida }
+    EmailConflict:
+      description: Correu normalitzat ja registrat
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: El correu ja està registrat }
+    TooLarge:
+      description: Cos JSON superior al límit d'Express (100 KiB)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: Petició massa gran }
+    InternalError:
+      description: Error intern de configuració o persistència; no inclou detalls interns
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: Error intern del servidor }
   schemas:
+    Credentials:
+      type: object
+      additionalProperties: false
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 254
+          description: Correu ASCII, part local de màxim 64 caràcters i domini amb punt. Aplica trim i minúscules.
+        password:
+          type: string
+          format: password
+          writeOnly: true
+          minLength: 8
+          maxLength: 72
+          description: Mínim 8 caràcters Unicode i màxim 72 BYTES UTF-8, sense controls ni només espais. No aplica trim.
+    ProfileUpdate:
+      type: object
+      additionalProperties: false
+      required: [username]
+      properties:
+        username:
+          type: string
+          minLength: 3
+          maxLength: 30
+          description: Després de trim i NFC, de 3 a 30 lletres Unicode, números, punts, guions o guions baixos. No únic provisionalment.
+          example: Núria_42
+    Preferences:
+      type: object
+      additionalProperties: false
+      required: [preferences]
+      properties:
+        preferences:
+          type: array
+          maxItems: 30
+          description: Text lliure sense enum; es deduplica després de trim, NFC i comparació sense majúscules. Admet [].
+          items:
+            type: string
+            minLength: 1
+            maxLength: 50
+            description: Text no buit després de trim i NFC, sense controls Unicode Cc ni Cf.
+    User:
+      type: object
+      additionalProperties: false
+      required: [id, email, username, preferences]
+      properties:
+        id: { type: string, pattern: '^[a-fA-F0-9]{24}$', example: '6710f1c2a1b2c3d4e5f60718' }
+        email: { type: string, format: email, example: persona@example.cat }
+        username: { type: string, nullable: true, minLength: 3, maxLength: 30, example: Núria_42 }
+        preferences:
+          type: array
+          maxItems: 30
+          uniqueItems: true
+          items: { type: string, minLength: 1, maxLength: 50 }
+    LoginResponse:
+      type: object
+      additionalProperties: false
+      required: [user, token, tokenType, expiresIn]
+      properties:
+        user: { $ref: '#/components/schemas/User' }
+        token: { type: string, description: JWT d'accés signat; mai incloure als logs }
+        tokenType: { type: string, enum: [Bearer] }
+        expiresIn: { type: integer, minimum: 1, maximum: 86400, example: 3600, description: Durada en segons des del login }
     Error:
       type: object
+      required: [error]
+      additionalProperties: false
       properties:
         error: { type: string }
     Event:
