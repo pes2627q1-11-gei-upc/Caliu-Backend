@@ -11,9 +11,11 @@ API i serveis de **Caliu**: descoberta d’esdeveniments culturals a Catalunya (
 </p>
 
 <p align="center">
+  <a href="docs/onboarding.md"><b>Onboarding</b></a> ·
   <a href="docs/openapi.yaml"><b>OpenAPI</b></a> ·
-  <a href="https://github.com/pes2627q1-11-gei-upc/Caliu-FrontEnd"><b>FrontEnd (Flutter)</b></a> ·
-  <a href="#arrencada-ràpida"><b>Arrencada</b></a>
+  <a href="docs/arquitectura.md"><b>Arquitectura</b></a> ·
+  <a href="CONTRIBUTING.md"><b>Contribuir</b></a> ·
+  <a href="https://github.com/pes2627q1-11-gei-upc/Caliu-FrontEnd"><b>FrontEnd</b></a>
 </p>
 
 ## Què fa
