@@ -1,5 +1,9 @@
 # Caliu · Backend
 
+<p align="center">
+  <img src="docs/assets/banner.svg" alt="Caliu: Sent el Caliu, enamora’t de la cultura catalana" width="100%">
+</p>
+
 API i serveis de **Caliu**: descoberta d’esdeveniments culturals a Catalunya (equip **Cultura't** · PES FIB-UPC · grup 11).
 
 <p align="center">
@@ -58,6 +62,22 @@ curl.exe "http://localhost:3000/events?lat=41.3851&lng=2.1734&radiusKm=50&limit=
 | `api-node` | `http://localhost:3000` (`NODE_PORT` al `.env`) |
 | `mongo` | intern a Docker (o Atlas via `API_MONGO_URI`) |
 | `python-service` | només xarxa Docker (`PYTHON_SERVICE_URL`) |
+
+## API pública (Render)
+
+Desplegada a: **https://caliu-api.onrender.com**
+
+- Health: https://caliu-api.onrender.com/health  
+- Exemple: https://caliu-api.onrender.com/events?limit=3  
+
+Servei Docker a Render amb **Root Directory** `apps/api-node` i variable `MONGO_URI` (Atlas).  
+Al pla free pot adormir-se: la primera petició després d’una estona pot trigar ~30–60 s.
+
+El front (APK / `flutter run`) ha d’usar:
+
+```text
+--dart-define=API_BASE_URL=https://caliu-api.onrender.com
+```
 
 ## Secrets
 

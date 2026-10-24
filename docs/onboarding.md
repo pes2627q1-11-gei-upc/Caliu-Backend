@@ -29,7 +29,18 @@ Si l’equip comparteix `API_MONGO_URI`, posa-la al `.env` (amb el nom de BD al 
 
 ## Front
 
-El client mòbil és [Caliu-FrontEnd](https://github.com/pes2627q1-11-gei-upc/Caliu-FrontEnd). Des de l’emulador Android la base URL és `http://10.0.2.2:3000`; des d’un mòbil físic, la IP Wi‑Fi del PC.
+El client mòbil és [Caliu-FrontEnd](https://github.com/pes2627q1-11-gei-upc/Caliu-FrontEnd). Des de l’emulador Android la base URL és `http://10.0.2.2:3000`; des d’un mòbil físic, la IP Wi‑Fi del PC (o USB + `adb reverse`).
+
+## API a Render
+
+URL: **https://caliu-api.onrender.com**
+
+```powershell
+curl.exe https://caliu-api.onrender.com/health
+curl.exe "https://caliu-api.onrender.com/events?limit=3"
+```
+
+Variables al servei: `MONGO_URI` (Atlas), `JWT_SECRET`. Root Directory: `apps/api-node`.
 
 ## On mirar després
 
