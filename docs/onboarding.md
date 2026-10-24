@@ -47,6 +47,8 @@ Variables al servei: `MONGO_URI` (Atlas), `JWT_SECRET`. Root Directory: `apps/ap
 | Recurs | Contingut |
 |--------|-----------|
 | [README](../README.md) | Visió general i stack |
+| [deploy.md](deploy.md) | Render + APK |
+| [sprint-1.md](sprint-1.md) | Què s’ha entregat |
 | [openapi.yaml](openapi.yaml) | Contracte API |
 | [arquitectura.md](arquitectura.md) | Components i flux de dades |
 | [git-workflow.md](git-workflow.md) | Branques, PR i commits |
