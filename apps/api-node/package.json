@@ -8,12 +8,14 @@
     "dev": "node --watch src/server.js",
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
     "test:integration": "node --experimental-vm-modules node_modules/jest/bin/jest.js --runInBand --testRegex=users.integration.js$",
+    "users:audit": "node src/scripts/auditUsers.js",
     "seed": "node src/scripts/seed.js",
     "seed:clear": "node src/scripts/seed.js --clear"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
     "express": "^4.21.0",
+    "express-rate-limit": "^8.7.1",
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^8.8.0"
   },

@@ -1,5 +1,6 @@
 import User, { publicUser } from '../models/User.js';
 import { validateUsername, validatePreferences } from '../domain/userValidation.js';
+import { userConflict } from '../domain/userConflict.js';
 
 export function getMe(req, res) {
   res.json(publicUser(req.user));
@@ -9,11 +10,10 @@ export function getPreferences(req, res) {
   res.json({ preferences: req.user.preferences });
 }
 
-// Compare-and-set evita que una escriptura autenticada abans del logout
-// sobreescrigui tokenVersion o s'executi després de la seva invalidació.
+// La identitat prové exclusivament del middleware; cap camp intern es desa.
 async function updateOwnUser(req, changes) {
   return User.findOneAndUpdate(
-    { _id: req.user._id, tokenVersion: req.user.tokenVersion },
+    { _id: req.user._id },
     { $set: changes },
     { new: true, runValidators: true },
   );
@@ -26,7 +26,7 @@ export async function updateMe(req, res, next) {
     if (!user) return res.status(401).json({ error: 'Sessió no vàlida' });
     res.json(publicUser(user));
   } catch (err) {
-    next(err);
+    next(userConflict(err));
   }
 }
 
