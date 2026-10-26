@@ -1,3 +1,5 @@
+import { EVENT_CATEGORIES } from './eventCategories.js';
+
 // Validació estricta abans de construir qualsevol consulta MongoDB.
 export function invalid(message) {
   return Object.assign(new Error(message), { status: 400 });
@@ -24,8 +26,8 @@ export function normalizeEmail(value) {
   return email;
 }
 
-export function validateCredentials(body) {
-  validateFields(body, ['email', 'password']);
+export function validateCredentials(body, registration = false) {
+  validateFields(body, registration ? ['username', 'email', 'password'] : ['email', 'password']);
   const email = normalizeEmail(body.email);
   const { password } = body;
   // bcrypt limita l'entrada a 72 bytes: rebutgem, mai truncem silenciosament.
@@ -37,15 +39,22 @@ export function validateCredentials(body) {
   return { email, password };
 }
 
-export function validateUsername(body) {
-  validateFields(body, ['username']);
-  if (typeof body.username !== 'string') throw invalid('username no vàlid');
-  const username = body.username.trim().normalize('NFC');
+export function normalizeUsername(value) {
+  if (typeof value !== 'string') throw invalid('username no vàlid');
+  const username = value.trim().normalize('NFC');
   if (!/^[\p{L}\p{N}_.-]{3,30}$/u.test(username)) {
     throw invalid('username ha de tenir entre 3 i 30 lletres, números, punts, guions o guions baixos');
   }
   return username;
 }
+
+export function validateUsername(body) {
+  validateFields(body, ['username']);
+  return normalizeUsername(body.username);
+}
+
+const categoryKey = (value) => value.trim().normalize('NFC').toLocaleLowerCase('ca');
+const categories = new Map(EVENT_CATEGORIES.map((value) => [categoryKey(value), value]));
 
 export function validatePreferences(body) {
   validateFields(body, ['preferences']);
@@ -59,10 +68,12 @@ export function validatePreferences(body) {
     if (!preference || [...preference].length > 50 || /[\p{Cc}\p{Cf}]/u.test(preference)) {
       throw invalid('Cada preferència ha de tenir entre 1 i 50 caràcters, sense controls');
     }
-    const key = preference.toLocaleLowerCase('ca');
+    const key = categoryKey(preference);
+    const canonical = categories.get(key);
+    if (!canonical) throw invalid('Preferència desconeguda; consulta /events/categories');
     if (!seen.has(key)) {
       seen.add(key);
-      result.push(preference);
+      result.push(canonical);
     }
     return result;
   }, []);

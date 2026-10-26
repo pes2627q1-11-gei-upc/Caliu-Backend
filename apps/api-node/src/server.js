@@ -1,15 +1,16 @@
 import app from './app.js';
 import { connectDB } from './config/db.js';
 import { getAuthConfig } from './config/auth.js';
-import User from './models/User.js';
+import Session from './models/Session.js';
+import { initializeUserIndexes } from './config/userIndexes.js';
 
 const PORT = process.env.PORT || 3000;
 
 async function start() {
   getAuthConfig();
   await connectDB();
-  // No acceptem registres abans que l'índex únic d'email estigui disponible.
-  await User.init();
+  await initializeUserIndexes();
+  await Session.init();
   app.listen(PORT, () => console.log(`api-node escoltant al port ${PORT}`));
 }
 

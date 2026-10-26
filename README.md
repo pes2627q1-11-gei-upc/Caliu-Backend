@@ -1,31 +1,243 @@
 # Caliu — backend
 
-API Node.js 22 / Express 4 / Mongoose 8, MongoDB 7 i servei Python d'ingesta.
-El contracte compartit amb Android és [docs/openapi.yaml](docs/openapi.yaml).
+Node.js 22, Express 4, Mongoose 8 i MongoDB 7. Contracte REST:
+[docs/openapi.yaml](docs/openapi.yaml). La ingesta Python i l'API pública
+d'esdeveniments mantenen el comportament existent.
 
-## Executar amb Docker Compose
+## Execució
 
 ```sh
 cp .env.example .env
-# Omple els camps buits de .env localment abans d'arrencar.
-docker compose up --build -d
+# Omple .env localment; no el comparteixis ni el versionis.
+docker compose up --build -d api-node
 curl http://localhost:3000/health
 ```
 
 Configura `MONGO_USER`, `MONGO_PASSWORD`, `MONGO_DB` i un `JWT_SECRET` aleatori
-d'almenys 32 bytes. Pots generar-lo amb `openssl rand -hex 32` i desar-lo només a
-`.env`, que està ignorat per Git. No incloguis secrets ni tokens en logs o captures.
+d'almenys 32 bytes (p. ex. genera'l localment amb `openssl rand -hex 32`).
+`JWT_TTL_SECONDS`: enter d'1 a 86400, per defecte 3600. No hi ha secret per defecte.
 Codifica les credencials Mongo com a components URI si contenen caràcters reservats.
-`JWT_TTL_SECONDS` és un enter d'1 a 86400; per defecte, 3600 (una hora).
-Compose ja passa el secret i la durada a l'API. La configuració de Python continua
-depenent de les variables d'ingesta existents.
+Per arrencar també la ingesta existent: `docker compose up --build -d` amb les
+seves variables configurades. Fora de Docker, configura un `MONGO_URI` accessible:
 
-Per iniciar només Mongo i l'API: `docker compose up --build -d api-node`.
-L'API comprova la configuració JWT i espera l'índex únic d'email abans d'obrir el port.
-Una configuració JWT absent o invàlida impedeix l'arrencada; no hi ha cap secret per defecte.
-El Dockerfile utilitza `npm ci --omit=dev` i el lockfile del repositori.
+```sh
+cd apps/api-node
+npm ci
+node --env-file=../../.env src/server.js
+```
 
-## Desenvolupament i tests
+`npm start` i `npm run dev` utilitzen les variables exportades; no carreguen `.env`
+automàticament. L'API valida JWT_SECRET i espera l'auditoria i els índexs d'usuaris
+i sessions abans d'escoltar peticions. El Dockerfile continua utilitzant
+`npm ci --omit=dev`; no s'ha modificat Compose.
+
+## Flutter integration contract
+
+Base local: `http://localhost:3000`; emulador Android: `http://10.0.2.2:3000`.
+En desplegament utilitza HTTPS. Cossos JSON amb `Content-Type: application/json`.
+Les rutes protegides exigeixen `Authorization: Bearer <token>`.
+
+| Mètode | Ruta | Cos obligatori | Resposta |
+|---|---|---|---|
+| POST | `/auth/register` | `username`, `email`, `password` | 201, `user`, `token`, `tokenType`, `expiresIn` |
+| POST | `/auth/login` | `email`, `password` | 200, mateix esquema que register |
+| POST | `/auth/logout` | Sense cos; Bearer | 204 sense cos |
+| GET | `/users/me` | Sense cos; Bearer | 200, objecte públic de l'usuari |
+| PATCH | `/users/me` | `username`; Bearer | 200, objecte públic actualitzat |
+| GET | `/users/me/preferences` | Sense cos; Bearer | 200, `{"preferences":[...]}` |
+| PUT | `/users/me/preferences` | `preferences`; Bearer | 200, llista completa substituïda |
+| GET | `/events/categories` | Sense cos ni token | 200, `{"categories":[...]}` |
+
+Registre amb **auto-login**; Flutter pot entrar directament a l'aplicació:
+
+```http
+POST /auth/register
+Content-Type: application/json
+
+{"username":"Nuria_42","email":"nuria@example.cat","password":"ExemplePassword42"}
+```
+
+Login posterior:
+
+```http
+POST /auth/login
+Content-Type: application/json
+
+{"email":"nuria@example.cat","password":"ExemplePassword42"}
+```
+
+Les dues respostes tenen exactament aquesta estructura; el token és un marcador:
+
+```json
+{
+  "user": {
+    "id": "507f1f77bcf86cd799439011",
+    "username": "Nuria_42",
+    "email": "nuria@example.cat",
+    "preferences": []
+  },
+  "token": "<JWT>",
+  "tokenType": "Bearer",
+  "expiresIn": 3600
+}
+```
+
+Exemples de peticions autenticades (substitueix el marcador localment, sense logs):
+
+```http
+GET /users/me
+Authorization: Bearer <JWT>
+```
+
+```json
+{"id":"507f1f77bcf86cd799439011","username":"Nuria_42","email":"nuria@example.cat","preferences":["Música"]}
+```
+
+```http
+PATCH /users/me
+Authorization: Bearer <JWT>
+Content-Type: application/json
+
+{"username":"Nuria_2026"}
+```
+
+Retorna directament l'objecte públic amb el nom actualitzat. Només aquest camp
+és editable aquí: `id`, `email`, `password`, `role`, `jti`, `sessions`,
+`tokenVersion`, `preferences` i qualsevol altre camp desconegut es rebutgen amb 400.
+La identitat prové del JWT, mai d'un identificador de perfil enviat pel client.
+No existeixen rutes `/profile` ni respostes amb el camp `profile`.
+
+```http
+PUT /users/me/preferences
+Authorization: Bearer <JWT>
+Content-Type: application/json
+
+{"preferences":[" música ","Teatre","MÚSICA"]}
+```
+
+Resposta 200: `{"preferences":["Música","Teatre"]}`. GET retorna el mateix format.
+`{"preferences":[]}` elimina tota la selecció. Flutter ha de carregar el catàleg de
+`GET /events/categories`: Música, Teatre, Gastronomia, Arts, Esports, Menjar i
+beguda, Nit, Tallers, Comèdia i A l'aire lliure. La font de veritat és
+`EVENT_CATEGORIES`; no s'accepten Cinema, Dansa o altres valors desconeguts.
+
+```http
+POST /auth/logout
+Authorization: Bearer <JWT>
+```
+
+Resposta **204 sense JSON**. Només es revoca aquesta sessió: A passa a 401,
+B continua funcionant i un nou login d'A no afecta B. Cada registre/login genera
+una sessió diferent, encara que es faci en el mateix segon.
+
+Flutter ha de desar el token en emmagatzematge segur, enviar-lo només al backend,
+retirar-lo del dispositiu en logout i tractar 401 com sessió absent/expirada/revocada.
+`expiresIn` s'expressa en segons. No hi ha refresh tokens. No imprimeixis ni capturis
+JWT, contrasenyes o secrets. No intentis parsejar JSON després del 204. Si logout
+retorna 500, la revocació al servidor no està confirmada; el client pot retirar
+igualment el token local. L'issuer/audience existents (`caliu-api`/`caliu-android`)
+es conserven com a identificadors del contracte, també per a Flutter.
+
+Regles que Flutter ha de reproduir:
+
+- **Username:** obligatori al registre; `trim()` i Unicode NFC; 3–30 punts de codi
+  Unicode; només lletres, números, `.`, `-`, `_`. Es conserva la grafia visible.
+  Unicitat sense distingir majúscules amb collation `ca`, força 2, normalització ICU;
+  els accents són significatius. `Quim_42`/`quim_42` i `Núria`/`NÚRIA` entren en
+  conflicte; `Núria` i `Nuria` poden coexistir. Flutter ha de gestionar el 409 del
+  servidor, que és qui garanteix la unicitat. No cal comprovar-la amb un altre endpoint.
+- **Email:** obligatori, ASCII amb domini amb punt, màxim 254 caràcters (64 part
+  local), trim i minúscules. Unicitat garantida per índex MongoDB.
+- **Password:** almenys 8 punts de codi Unicode, màxim **72 bytes UTF-8**; sense
+  controls Unicode Cc ni només espais. No es fa trim ni truncació. A Dart, compteu
+  `password.runes.length` i `utf8.encode(password).length`; `String.length` compta
+  unitats UTF-16. El backend desa exclusivament bcrypt amb salt aleatori i cost 12.
+- **Preferències:** llista completa de fins a 30 entrades, strings no buits de
+  màxim 50 punts de codi després de trim/NFC, sense controls Cc/Cf. Només categories
+  reals; es toleren majúscules diferents, espais exteriors i equivalència NFC,
+  però no s'eliminen accents. Es retorna sempre el nom canònic i sense duplicats.
+
+Errors uniformes: `{"error":"missatge"}`. 400: payload/JSON invàlid; 401:
+autenticació invàlida o credencials incorrectes (mateix missatge per email inexistent
+i password erroni de format vàlid); 409: email o username ocupat; 413: JSON superior
+a 100 KiB; 429: massa intents amb `Retry-After`; 500: error intern genèric.
+Exemples: `{"error":"El username ja està ocupat"}` i
+`{"error":"Preferència desconeguda; consulta /events/categories"}`.
+
+## Sessions, consistència i seguretat
+
+La col·lecció `sessions` desa només `userId`, `jti` aleatori de 32 bytes i
+`expiresAt` (més `_id`/`__v` de Mongo/Mongoose); mai JWT complets ni informació de
+dispositiu. Té índex únic `jti`, índex `userId` i TTL `expiresAt` amb
+`expireAfterSeconds: 0`. Cada petició protegida comprova HS256 explícit,
+signatura, issuer, audience, exp, sub vàlid, usuari existent i sessió amb aquell
+propietari i `expiresAt > ara`. El TTL només neteja: pot executar-se amb retard.
+El logout elimina exclusivament aquella sessió. Una caiguda de MongoDB retorna
+500; mai es concedeix accés per error. Les peticions ja autoritzades en curs
+poden acabar després d'un logout; no hi ha transaccions entre sessió i perfil.
+
+**Registre en MongoDB standalone:** es valida i signa abans de persistir, es crea
+la sessió amb un userId preassignat i després s'insereix el compte. Si falla la
+sessió no es crea el compte. Si falla el compte, s'intenta eliminar només aquella
+sessió; si la neteja falla, queda una sessió òrfena incapaç d'autenticar ningú,
+fins a la neteja TTL. No s'eliminen comptes com a compensació. Com en qualsevol
+escriptura Mongo amb resultat ambigu per tall de xarxa, un client pot rebre 500
+encara que l'última inserció s'hagi completat: ha de provar login abans de repetir
+un registre que ja retorna 409. No hi ha una transacció distribuïda ni refresh tokens.
+
+Auth i perfil porten `Cache-Control: no-store`. Errors interns genèrics, sense
+cossos originals, hashes, URI o traces als logs. El password s'exclou de les
+consultes habituals i l'API publica només `id`, `username`, `email`, `preferences`.
+
+S'ha afegit un límit combinat de **30 intents de register/login per IP cada
+15 minuts**, comptant també èxits, abans de bcrypt. És en memòria per procés,
+es reinicia amb l'API i no es comparteix entre rèpliques. Express no confia en
+`X-Forwarded-For` per defecte. Si hi ha proxy, cal configurar expressament els
+salts de confiança al desplegament i acordar un límit compartit si es replica
+l'API; no activar `trust proxy: true` indiscriminadament. Aquesta mesura bàsica
+no substitueix HTTPS ni els controls d'abús del desplegament.
+
+## Comptes antics i desplegament sense pèrdua de dades
+
+Les decisions de Cultura't ja són definitives. No s'ha executat cap migració sobre
+una base compartida. Abans del desplegament, amb les escriptures d'usuari aturades,
+executa l'auditoria de **només lectura** sobre el destí aprovat:
+
+```sh
+cd apps/api-node
+# Amb MONGO_URI exportat de forma segura:
+npm run users:audit
+# O, si .env ja conté el MONGO_URI adequat:
+node --env-file=../../.env src/scripts/auditUsers.js
+```
+
+El resultat només inclou grups d'IDs duplicats, IDs amb nom invàlid/no normalitzat,
+preferències no canòniques i comptes amb nom nul/absent; no imprimeix noms,
+correus ni secrets. L'arrencada comprova el mateix abans de crear l'índex
+`username_unique_ci` (únic, collation `ca`, strength 2, normalization true).
+No s'utilitza `syncIndexes` ni s'eliminen índexs existents.
+
+Procediment de regularització:
+
+1. Fer còpia de seguretat segons el procediment del desplegament i revisar el
+   report. Els conflictes no es resolen automàticament ni s'inventen noms.
+2. Acordar amb els titulars/equip els usernames alternatius dels grups duplicats
+   i la normalització de formats incompatibles. Acordar també el tractament de
+   preferències antigues fora del catàleg. Aplicar només aquests canvis aprovats
+   amb el desplegament anterior o una operació de manteniment revisada.
+3. Repetir l'auditoria i desplegar quan no quedin duplicats, noms incompatibles
+   ni preferències no canòniques. L'API es nega a arrencar si en queden; una cursa
+   residual també serà rebutjada per la creació de l'índex únic.
+4. Els noms nuls/absents antics s'exclouen de l'índex parcial i no bloquegen el
+   desplegament. Els comptes es conserven i poden fer login; `user.username` és
+   `null` fins que el titular el regularitza amb el PATCH habitual. Flutter ha de
+   mostrar l'edició del nom en aquest cas. Els comptes nous no poden ometre'l.
+
+Els JWT antics sense `jti` passen a ser invàlids: cal tornar a iniciar sessió.
+`tokenVersion` deixa de tenir funció; si el camp queda en documents antics,
+s'ignora i no s'exposa. No cal esborrar-lo per desplegar aquesta versió.
+
+## Tests i criteris de Sprint 1
 
 ```sh
 cd apps/api-node
@@ -33,150 +245,33 @@ npm ci
 npm test -- --runInBand
 ```
 
-Els tests habituals amb Jest/Supertest simulen els models; no connecten a MongoDB,
-no llegeixen `.env` i utilitzen secrets i dades sintètiques. Per executar Node fora de
-Docker cal configurar un `MONGO_URI` accessible localment i `JWT_SECRET`:
-`node --env-file=../../.env src/server.js`. `npm start`/`npm run dev` utilitzen les
-variables exportades a l'entorn; no carreguen `.env` automàticament.
-
-La integració és opcional, separada de `npm test`, i utilitza un MongoDB efímer:
+Jest/Supertest amb models simulats: mai llegeixen `.env` ni connecten a MongoDB.
+La integració és separada i destructiva **només per a la seva base efímera**:
 
 ```sh
 docker run --rm -d --name caliu-users-integration-test \
   -p 127.0.0.1:27028:27017 mongo:7 --bind_ip_all
-cd apps/api-node  # des de l'arrel del repositori
+cd apps/api-node  # des de l'arrel
 TEST_MONGO_URI=mongodb://127.0.0.1:27028/caliu_users_integration_test npm run test:integration
 docker stop caliu-users-integration-test
 ```
 
-Espera que MongoDB estigui disponible abans d'executar la integració. No muntis
-volums amb dades del projecte. La suite només accepta `localhost`/`127.0.0.1`,
-el nom exacte `caliu_users_integration_test`, sense credencials ni opcions d'URI;
-neteja aquesta base de dades i l'elimina en acabar. No utilitza `MONGO_URI`.
-Comprova l'índex únic amb registres concurrents, hash, login, persistència,
-aïllament d'usuaris, logout i endpoints d'esdeveniments reals.
+Espera que MongoDB estigui disponible. Sense Docker, pots iniciar `mongod` 7 amb
+`--bind_ip 127.0.0.1 --port 27028 --dbpath <directori-temporal-buit>` i executar la
+mateixa comanda de test; atura'l en acabar. No utilitzis volums o directoris de dades
+compartits. La suite només accepta localhost/127.0.0.1, el nom exacte
+`caliu_users_integration_test`, sense credencials ni opcions URI. No utilitza
+`MONGO_URI`. Neteja col·leccions, prova l'auditoria amb dades antigues sintètiques
+i elimina aquesta base en acabar.
 
-## Integració Android: Sprint 1
-
-Base URL local: `http://localhost:3000`; emulador Android: `http://10.0.2.2:3000`.
-En entorns desplegats cal HTTPS. Totes les peticions amb cos són `application/json`.
-Els errors tenen sempre forma `{"error":"missatge"}`. Els endpoints d'esdeveniments
-continuen públics. No hi ha OAuth, refresh tokens, rols ni recomanacions.
-
-| Mètode | Ruta | Petició | Resposta correcta |
-|---|---|---|---|
-| POST | `/auth/register` | `{"email":"persona@example.cat","password":"Exemple-password-42"}` | 201, `{"user":{...}}` |
-| POST | `/auth/login` | El mateix cos | 200, usuari i JWT |
-| GET | `/users/me` | Sense cos, Bearer JWT | 200, perfil propi |
-| PATCH | `/users/me` | `{"username":"Nuria_42"}`, Bearer JWT | 200, perfil actualitzat |
-| GET | `/users/me/preferences` | Sense cos, Bearer JWT | 200, `{"preferences":[...]}` |
-| PUT | `/users/me/preferences` | `{"preferences":["Música","Cinema"]}`, Bearer JWT | 200, llista substituïda |
-| POST | `/auth/logout` | Sense cos, Bearer JWT | 204, sense cos |
-
-Exemple de resposta de login (el token mostrat és només un marcador):
-
-```json
-{
-  "user": {
-    "id": "6710f1c2a1b2c3d4e5f60718",
-    "email": "persona@example.cat",
-    "username": null,
-    "preferences": []
-  },
-  "token": "<access-token>",
-  "tokenType": "Bearer",
-  "expiresIn": 3600
-}
-```
-
-El registre no inicia sessió: Android ha de fer login després. Desa el token en
-emmagatzematge segur i envia `Authorization: Bearer <token>` a les rutes protegides;
-no enviïs identificadors d'usuari per escollir el perfil. Perfil i credencials no
-són intercanviables: `GET/PATCH /users/me` retorna directament l'objecte públic,
-mentre que register/login l'inclouen dins de `user`.
-
-Exemples amb `TOKEN` assignat localment a partir del login (no l'imprimeixis):
-
-```sh
-curl -X POST http://localhost:3000/auth/register \
-  -H 'Content-Type: application/json' \
-  -d '{"email":"persona@example.cat","password":"Exemple-password-42"}'
-curl http://localhost:3000/users/me -H "Authorization: Bearer $TOKEN"
-curl -X PATCH http://localhost:3000/users/me \
-  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-  -d '{"username":"Nuria_42"}'
-curl -X PUT http://localhost:3000/users/me/preferences \
-  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-  -d '{"preferences":["Música","Cinema"]}'
-curl -X PUT http://localhost:3000/users/me/preferences \
-  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-  -d '{"preferences":[]}'
-curl -X POST http://localhost:3000/auth/logout -H "Authorization: Bearer $TOKEN"
-```
-
-No intentis parsejar JSON després d'un 204. En rebre 401, elimina la sessió local
-i torna al login; no reintentis indefinidament el mateix token. Un 500 al logout
-no confirma la invalidació al servidor; el client pot eliminar igualment el token local.
-
-## Validació i decisions de seguretat
-
-- Email: obligatori, ASCII amb domini amb punt, màxim 254 caràcters (64 part local),
-  trim/minúscules, índex únic MongoDB. Duplicats, també en cursa, retornen 409.
-- Password: obligatori, almenys 8 caràcters Unicode i màxim **72 bytes UTF-8**,
-  sense caràcters de control ni només espais; es conserva exactament sense trim.
-  bcryptjs amb salt aleatori i cost 12. El límit evita la truncació de bcrypt.
-  No es retornen ni password, ni hash, ni tokenVersion. Els errors interns no
-  imprimeixen documents, URI, tokens ni traces als logs.
-- Login: missatge 401 idèntic per compte inexistent i contrasenya errònia;
-  executa bcrypt.compare també si el compte no existeix. Entrades mal formades
-  retornen 400. JWT HS256 amb `sub`, expiració, issuer, audience i tokenVersion;
-  el middleware comprova signatura, claims, existència i versió actual a MongoDB.
-- Perfil: només username és editable; trim/NFC, 3–30 lletres Unicode, números,
-  punts, guions o guions baixos. Camps desconeguts es rebutgen amb 400; cap mass
-  assignment. Les escriptures filtren per identitat autenticada i tokenVersion.
-- Preferències: llista completa, màxim 30 entrades de 1–50 caràcters Unicode,
-  trim/NFC, sense controls Cc/Cf; deduplicació sense distingir majúscules i
-  preservant la primera grafia. `[]` elimina totes les preferències.
-- Auth i perfil utilitzen `Cache-Control: no-store`. JSON mal format retorna 400
-  sense reproduir el cos; el límit JSON d'Express (100 KiB) retorna 413.
-
-La [documentació de bcryptjs](https://github.com/dcodeIO/bcrypt.js#security-considerations)
-explica el límit de 72 bytes; les opcions JWT segueixen
-[jsonwebtoken](https://github.com/auth0/node-jsonwebtoken#jwtverifytoken-secretorpublickey-options-callback).
-
-**Logout:** incrementa atòmicament `tokenVersion`, de manera que invalida **totes
-les sessions actives del compte**, també les d'altres dispositius. No elimina
-perfil ni preferències. Una sessió iniciada després del logout utilitza la nova
-versió. La invalidació depèn de MongoDB i implica una consulta per petició
-protegida; una caiguda de persistència retorna 500. No cancel·la respostes de
-lectura ja en curs. Android també ha d'eliminar el token del dispositiu.
-
-## Decisions pendents de Cultura't i límits
-
-- Confirmar si el logout ha de ser global. Si només ha d'afectar un dispositiu,
-  caldria acordar un model de sessions per dispositiu; tokenVersion no el proporciona.
-- Confirmar la unicitat de username. Aquí és un nom visible **no únic**, inicialment
-  `null`; no s'ha creat cap índex únic ni s'utilitza per iniciar sessió.
-- Confirmar catàleg i semàntica de #37. Les categories d'esdeveniments són Música,
-  Teatre, Gastronomia, Arts, Esports, Menjar i beguda, Nit, Tallers, Comèdia i
-  A l'aire lliure. El repositori no conté el catàleg específic de la US i la consulta
-  remota no ha estat accessible. Per això s'accepta text lliure validat, inclosos
-  Cinema, Dansa o Literatura; aquests exemples no es pressuposen requisits de #37.
-  No s'ha imposat cap enum ni s'ha canviat `eventCategories.js`.
-- Confirmar les convencions provisionals de longitud de password/username/preferències
-  i durada de sessió. No hi ha verificació de correu, recuperació de contrasenya,
-  refresh tokens ni limitació distribuïda d'intents; abans d'exposar login a Internet,
-  cal concretar HTTPS i controls d'abús al desplegament.
-
-## Cobertura dels criteris de backend
-
-| US | Implementació i comprovació |
+| US | Criteris de backend comprovats |
 |---|---|
-| #39 | Registre 201, validació 400, email normalitzat únic/409 i hash amb salt; test de cursa real a MongoDB |
-| #40 | Login amb JWT expirable i usuari públic, 401 genèric; tests de signatura, claims, token absent/expirat/invàlid i errors de persistència |
-| #34 | GET/PATCH propi, username validat, camps no autoritzats rebutjats, persistència i aïllament entre dos usuaris |
-| #37 | GET/PUT propi, substitució, deduplicació, llista buida i límits; catàleg definitiu pendent |
-| #38 | Logout 204, revocació comprovada, conservació de dades i nou login; decisió de logout global pendent |
+| #39 | Username obligatori/únic, hash/salt/cost, auto-login, JWT immediat, 400/409/500, concurrència i consistència standalone |
+| #40 | Esquema uniforme, sessions diferents, expiració, credencials genèriques, claims/propietari/sessió/usuari i fallades de Mongo |
+| #34 | Perfil propi, edició i unicitat, persistència, Unicode, rebuig de camps interns i aïllament entre usuaris |
+| #37 | Catàleg real, noms canònics, duplicats, substitució, buidatge, persistència i aïllament |
+| #38 | Revocar A conserva B i altres usuaris; nou login conserva B; 204, reutilització 401 i error de persistència segur |
 
-Els criteris descrits a la petició estan coberts per tests; la validació final dels
-criteris originals de les US i les decisions de producte requereix Cultura't.
+La regressió inclou `/events`, `/events/search`, `/events/:id` i
+`/events/categories`; la ingesta no es modifica. No es pressuposa verificació de
+correu, recuperació de password, OAuth o recomanador.

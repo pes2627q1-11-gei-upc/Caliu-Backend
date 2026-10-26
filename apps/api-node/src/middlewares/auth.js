@@ -1,5 +1,6 @@
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
+import Session from '../models/Session.js';
 import { getAuthConfig } from '../config/auth.js';
 
 export function noStore(_req, res, next) {
@@ -24,15 +25,20 @@ export async function requireAuth(req, res, next) {
       throw err;
     }
     if (!payload || typeof payload.sub !== 'string' || !/^[a-f0-9]{24}$/i.test(payload.sub)
-      || !Number.isSafeInteger(payload.exp) || !Number.isSafeInteger(payload.tokenVersion)
-      || payload.tokenVersion < 0) {
+      || !Number.isSafeInteger(payload.exp) || typeof payload.jti !== 'string'
+      || !/^[a-f0-9]{64}$/.test(payload.jti)) {
       return res.status(401).json({ error: 'Sessió no vàlida' });
     }
-    const user = await User.findById(payload.sub).select('+tokenVersion').lean();
-    if (!user || user.tokenVersion !== payload.tokenVersion) {
+    const user = await User.findById(payload.sub).lean();
+    if (!user) return res.status(401).json({ error: 'Sessió no vàlida' });
+    const session = await Session.exists({
+      jti: payload.jti, userId: user._id, expiresAt: { $gt: new Date() },
+    });
+    if (!session) {
       return res.status(401).json({ error: 'Sessió no vàlida' });
     }
     req.user = user;
+    req.authSession = { jti: payload.jti };
     next();
   } catch (err) {
     next(err);

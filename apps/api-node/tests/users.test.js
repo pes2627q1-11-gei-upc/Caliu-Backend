@@ -1,6 +1,8 @@
 import { jest } from '@jest/globals';
 import request from 'supertest';
 import jwt from 'jsonwebtoken';
+import { randomBytes } from 'node:crypto';
+import Session from '../src/models/Session.js';
 import User from '../src/models/User.js';
 import { EVENT_CATEGORIES } from '../src/domain/eventCategories.js';
 import app from '../src/app.js';
@@ -11,10 +13,13 @@ const OTHER_ID = '64b7f0c2a1b2c3d4e5f60719';
 const originalSecret = process.env.JWT_SECRET;
 const originalTtl = process.env.JWT_TTL_SECONDS;
 let users;
+let sessions;
 let accessToken;
 const clone = (value) => value && structuredClone(value);
 function sign(id = ID) {
-  return jwt.sign({ tokenVersion: users[id].tokenVersion }, SECRET, {
+  const jti = randomBytes(32).toString('hex');
+  sessions.set(jti, { userId: id, expiresAt: new Date(Date.now() + 3600000) });
+  return jwt.sign({ jti }, SECRET, {
     subject: id, algorithm: 'HS256', issuer: 'caliu-api', audience: 'caliu-android', expiresIn: 3600,
   });
 }
@@ -27,21 +32,27 @@ beforeEach(() => {
     _id: id, email: `prova${index}@example.cat`, username: null, preferences: [], tokenVersion: 0,
     passwordHash: 'private-hash', role: 'internal', __v: 2,
   }]));
+  sessions = new Map();
   accessToken = sign();
   jest.spyOn(User, 'findById').mockImplementation((id) => ({
-    select: () => ({ lean: async () => clone(users[id]) }),
+    lean: async () => clone(users[id]),
   }));
   jest.spyOn(User, 'findOneAndUpdate').mockImplementation(async (filter, update) => {
     const user = users[filter._id];
-    if (!user || user.tokenVersion !== filter.tokenVersion) return null;
+    if (!user) return null;
     Object.assign(user, update.$set);
     return clone(user);
   });
-  jest.spyOn(User, 'updateOne').mockImplementation(async (filter, update) => {
-    const user = users[filter._id];
-    if (!user || user.tokenVersion !== filter.tokenVersion) return { matchedCount: 0 };
-    user.tokenVersion += update.$inc.tokenVersion;
-    return { matchedCount: 1 };
+  jest.spyOn(Session, 'exists').mockImplementation(async (filter) => {
+    const session = sessions.get(filter.jti);
+    return session && session.userId === String(filter.userId) && session.expiresAt > filter.expiresAt.$gt
+      ? { _id: 'session' } : null;
+  });
+  jest.spyOn(Session, 'deleteOne').mockImplementation(async (filter) => {
+    const session = sessions.get(filter.jti);
+    if (!session || session.userId !== String(filter.userId)) return { deletedCount: 0 };
+    sessions.delete(filter.jti);
+    return { deletedCount: 1 };
   });
   jest.spyOn(console, 'error').mockImplementation(() => {});
 });
@@ -68,15 +79,17 @@ describe('#34 perfil propi', () => {
     expect(res.status).toBe(200);
     expect(res.body.username).toBe('Núria_42');
     expect(User.findOneAndUpdate).toHaveBeenCalledWith(
-      { _id: ID, tokenVersion: 0 }, { $set: { username: 'Núria_42' } }, { new: true, runValidators: true },
+      { _id: ID }, { $set: { username: 'Núria_42' } }, { new: true, runValidators: true },
     );
     expect((await auth(request(app).get('/users/me'))).body.username).toBe('Núria_42');
     expect(users[OTHER_ID]).toEqual(other);
   });
 
-  it('permet noms visibles repetits provisionalment', async () => {
-    expect((await auth(request(app).patch('/users/me').send({ username: 'compartit' }))).status).toBe(200);
-    expect((await auth(request(app).patch('/users/me').send({ username: 'compartit' }), sign(OTHER_ID))).status).toBe(200);
+  it('retorna 409 si el nou username ja està ocupat, incloses majúscules', async () => {
+    User.findOneAndUpdate.mockRejectedValue(Object.assign(new Error('E11000'), { code: 11000, keyPattern: { username: 1 } }));
+    const res = await auth(request(app).patch('/users/me').send({ username: 'COMPARTIT' }));
+    expect(res.status).toBe(409);
+    expect(res.body).toEqual({ error: 'El username ja està ocupat' });
   });
 
   it.each(['email', 'password', 'passwordHash', 'role', 'tokenVersion', '_id', 'id', 'userId', 'preferences', '__v', '$set'])('rebutja mass assignment de %s', async (key) => {
@@ -104,28 +117,28 @@ describe('#34 perfil propi', () => {
 describe('#37 preferències', () => {
   it('consulta, substitueix, normalitza, deduplica i elimina les preferències pròpies', async () => {
     expect((await auth(request(app).get('/users/me/preferences'))).body).toEqual({ preferences: [] });
-    const res = await auth(request(app).put('/users/me/preferences').send({ preferences: [' Música ', 'música', 'Cinema', 'Mu\u0301sica'] }));
+    const res = await auth(request(app).put('/users/me/preferences').send({ preferences: [' Música ', 'música', 'Teatre', 'Mu\u0301sica'] }));
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ preferences: ['Música', 'Cinema'] });
+    expect(res.body).toEqual({ preferences: ['Música', 'Teatre'] });
     expect((await auth(request(app).get('/users/me/preferences'))).body).toEqual(res.body);
-    expect((await auth(request(app).put('/users/me/preferences').send({ preferences: ['Dansa'] }))).body).toEqual({ preferences: ['Dansa'] });
+    expect((await auth(request(app).put('/users/me/preferences').send({ preferences: ['Arts'] }))).body).toEqual({ preferences: ['Arts'] });
     expect((await auth(request(app).put('/users/me/preferences').send({ preferences: [] }))).body).toEqual({ preferences: [] });
     expect((await auth(request(app).get('/users/me/preferences'))).body).toEqual({ preferences: [] });
     expect(users[OTHER_ID].preferences).toEqual([]);
     expect(User.findOneAndUpdate).toHaveBeenLastCalledWith(
-      { _id: ID, tokenVersion: 0 }, { $set: { preferences: [] } }, { new: true, runValidators: true },
+      { _id: ID }, { $set: { preferences: [] } }, { new: true, runValidators: true },
     );
   });
 
-  it('accepta les categories existents i preferències fora del catàleg d’esdeveniments', async () => {
-    const preferences = [...EVENT_CATEGORIES, 'Cinema', 'Literatura', 'Dansa'];
+  it('accepta exactament totes les categories existents', async () => {
+    const preferences = [...EVENT_CATEGORIES];
     const res = await auth(request(app).put('/users/me/preferences').send({ preferences }));
     expect(res.status).toBe(200);
     expect(res.body.preferences).toEqual(preferences);
   });
 
   it.each([{}, [], { preferences: null }, { preferences: 'Música' }, { preferences: [42] },
-    { preferences: [{}] }, { preferences: [''] }, { preferences: ['   '] },
+    { preferences: [{}] }, { preferences: ['Cinema'] }, { preferences: ['musica'] }, { preferences: [''] }, { preferences: ['   '] },
     { preferences: ['a'.repeat(51)] }, { preferences: ['a\nb'] }, { preferences: ['a\u200bb'] },
     { preferences: Array(31).fill('Música') }, { preferences: [], userId: OTHER_ID }])('valida la llista %#', async (body) => {
     const res = await auth(request(app).put('/users/me/preferences').send(body));
@@ -136,33 +149,35 @@ describe('#37 preferències', () => {
 });
 
 describe('#38 logout', () => {
-  it('invalida totes les sessions anteriors, conserva el perfil i permet una sessió posterior', async () => {
+  it('invalida només A, conserva B i un altre usuari, i permet una sessió posterior', async () => {
     users[ID].username = 'Núria';
-    users[ID].preferences = ['Cinema'];
+    users[ID].preferences = ['Teatre'];
     const secondSession = sign();
     const otherToken = sign(OTHER_ID);
     const res = await auth(request(app).post('/auth/logout'));
     expect(res.status).toBe(204);
     expect(res.text).toBe('');
-    expect(User.updateOne).toHaveBeenCalledWith({ _id: ID, tokenVersion: 0 }, { $inc: { tokenVersion: 1 } });
-    for (const old of [accessToken, secondSession]) {
+    expect(Session.deleteOne).toHaveBeenCalledWith({ userId: ID, jti: jwt.decode(accessToken).jti, expiresAt: { $gt: expect.any(Date) } });
+    for (const old of [accessToken]) {
       expect((await auth(request(app).get('/users/me'), old)).status).toBe(401);
       expect((await auth(request(app).put('/users/me/preferences').send({ preferences: [] }), old)).status).toBe(401);
       expect((await auth(request(app).post('/auth/logout'), old)).status).toBe(401);
     }
+    expect((await auth(request(app).get('/users/me'), secondSession)).status).toBe(200);
     const fresh = await auth(request(app).get('/users/me'), sign());
+    expect((await auth(request(app).get('/users/me'), secondSession)).status).toBe(200);
     expect(fresh.status).toBe(200);
-    expect(fresh.body).toMatchObject({ username: 'Núria', preferences: ['Cinema'] });
+    expect(fresh.body).toMatchObject({ username: 'Núria', preferences: ['Teatre'] });
     expect((await auth(request(app).get('/users/me'), otherToken)).status).toBe(200);
   });
 
   it('un logout concurrent ja completat retorna 401', async () => {
-    User.updateOne.mockResolvedValue({ matchedCount: 0 });
+    Session.deleteOne.mockResolvedValue({ deletedCount: 0 });
     expect((await auth(request(app).post('/auth/logout'))).status).toBe(401);
   });
 
   it('una fallada de persistència no anuncia un logout correcte', async () => {
-    User.updateOne.mockRejectedValue(new Error('Mongo unavailable'));
+    Session.deleteOne.mockRejectedValue(new Error('Mongo unavailable'));
     const res = await auth(request(app).post('/auth/logout'));
     expect(res.status).toBe(500);
     expect(res.body).toEqual({ error: 'Error intern del servidor' });
@@ -177,7 +192,7 @@ describe('protecció i errors comuns', () => {
   });
 
   it.each([['patch', '/users/me', { username: 'nou' }],
-    ['put', '/users/me/preferences', { preferences: ['Cinema'] }]])('gestiona errors i sessions obsoletes a %s %s', async (method, path, body) => {
+    ['put', '/users/me/preferences', { preferences: ['Teatre'] }]])('gestiona errors i sessions obsoletes a %s %s', async (method, path, body) => {
     User.findOneAndUpdate.mockRejectedValueOnce(new Error('internal-secret'));
     const res = await auth(request(app)[method](path).send(body));
     expect(res.status).toBe(500);
