@@ -126,6 +126,16 @@ describe('#39 registre', () => {
     expect(res.body.error).toBe('El correu ja està registrat');
   });
 
+  it('classifica correctament un duplicat d’email quan l’error només porta keyValue', async () => {
+    User.create.mockRejectedValue(Object.assign(new Error('duplicate key'), {
+      code: 11000,
+      keyValue: { email: 'prova@example.cat' },
+    }));
+    const res = await request(app).post('/auth/register').send(registration);
+    assertError(res, 409);
+    expect(res.body.error).toBe('El correu ja està registrat');
+  });
+
   it('retorna 500 genèric i no imprimeix dades de persistència', async () => {
     User.create.mockRejectedValue(new Error(`document-secret ${PASSWORD} ${storedHash}`));
     const res = await request(app).post('/auth/register').send(registration);
