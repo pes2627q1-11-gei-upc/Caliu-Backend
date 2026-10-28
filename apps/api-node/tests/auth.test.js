@@ -26,6 +26,7 @@ beforeEach(() => {
   user = { _id: ID, email: 'prova@example.cat', username: 'Prova_42', preferences: [],
     tokenVersion: 0, passwordHash: storedHash };
   jest.spyOn(User, 'create').mockImplementation(async (data) => { user = { ...user, ...data }; return user; });
+  jest.spyOn(User, 'exists').mockReturnValue({ collation: jest.fn().mockResolvedValue(null) });
   jest.spyOn(User, 'findOne').mockReturnValue({ select: jest.fn().mockResolvedValue(user) });
   jest.spyOn(User, 'findById').mockImplementation(() => ({ lean: async () => user }));
   jest.spyOn(Session, 'create').mockImplementation(async (data) => data);
@@ -71,6 +72,26 @@ describe('#39 registre', () => {
     expect(res.body.error).toBe('El username ja està ocupat');
     const session = Session.create.mock.calls[0][0];
     expect(Session.deleteOne).toHaveBeenCalledWith({ userId: session.userId, jti: session.jti });
+  });
+
+  it('retorna 409 abans de crear la sessió si el username ja existeix', async () => {
+    User.exists.mockReturnValue({ collation: jest.fn().mockResolvedValue({ _id: 'existing-user' }) });
+    const res = await request(app).post('/auth/register').send({ ...registration, email: 'nou@example.cat' });
+    assertError(res, 409);
+    expect(res.body.error).toBe('El username ja està ocupat');
+    expect(Session.create).not.toHaveBeenCalled();
+    expect(User.create).not.toHaveBeenCalled();
+  });
+
+  it('retorna 409 per username duplicat amb el format MongoServerError', async () => {
+    User.create.mockRejectedValue(Object.assign(new Error(
+      'E11000 duplicate key error collection: users index: username_unique_ci dup key',
+    ), { name: 'MongoServerError', code: '11000' }));
+    const res = await request(app).post('/auth/register').send(registration);
+    assertError(res, 409);
+    expect(res.body.error).toBe('El username ja està ocupat');
+    expect(User.create).toHaveBeenCalled();
+    expect(Session.deleteOne).toHaveBeenCalled();
   });
 
   it('una neteja fallida no amaga el conflicte ni filtra errors', async () => {

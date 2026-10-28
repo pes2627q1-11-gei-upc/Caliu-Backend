@@ -1,11 +1,11 @@
 import bcrypt from 'bcryptjs';
 import mongoose from 'mongoose';
-import User from '../models/User.js';
+import User, { USERNAME_COLLATION } from '../models/User.js';
 import Session from '../models/Session.js';
 import { validateCredentials, normalizeUsername } from '../domain/userValidation.js';
 import { getAuthConfig } from '../config/auth.js';
 import { prepareSession, sessionResponse } from '../domain/session.js';
-import { userConflict } from '../domain/userConflict.js';
+import { userConflict, usernameConflict } from '../domain/userConflict.js';
 
 // Hash de farciment: fa que un email inexistent també executi bcrypt.compare.
 const DUMMY_HASH = '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6Ttx0ft0XDsVYQ6XN8F1Jk79HZf7K';
@@ -14,6 +14,8 @@ export async function register(req, res, next) {
   try {
     const { email, password } = validateCredentials(req.body, true);
     const username = normalizeUsername(req.body.username);
+    const existingUsername = await User.exists({ username }).collation(USERNAME_COLLATION);
+    if (existingUsername) throw usernameConflict();
     const config = getAuthConfig();
     const passwordHash = await bcrypt.hash(password, 12);
     const _id = new mongoose.Types.ObjectId();

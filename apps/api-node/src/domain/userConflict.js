@@ -1,16 +1,19 @@
+export function usernameConflict() {
+  return Object.assign(new Error('El username ja està ocupat'), { status: 409 });
+}
+
 export function userConflict(err) {
-  if (err.code !== 11000) return err;
+  const message = err.message ?? '';
+  const isDuplicate = err.code === 11000 || err.code === '11000'
+    || (err.name === 'MongoServerError' && message.startsWith('E11000'));
+  if (!isDuplicate) return err;
 
   const duplicateField = Object.keys(err.keyPattern ?? {})[0]
-    ?? Object.keys(err.keyValue ?? {})[0]
-    ?? (() => {
-      const match = /(?:index:\s*|key:\s*\{?\s*)([a-zA-Z0-9_]+)(?::|\s*\}|\s*\})/m.exec(err.message ?? '');
-      return match ? match[1] : undefined;
-    })();
-
+    ?? Object.keys(err.keyValue ?? {})[0];
   const username = duplicateField === 'username'
-    || err.message?.includes('username_unique_ci')
-    || /(?:index:\s*|key:\s*\{?\s*)username(?:\s*\}|\s*\}|\s*\)|\s*\:)/i.test(err.message ?? '');
+    || message.includes('username_unique_ci')
+    || /\busername\b/i.test(message);
 
-  return Object.assign(new Error(username ? 'El username ja està ocupat' : 'El correu ja està registrat'), { status: 409 });
+  return username ? usernameConflict()
+    : Object.assign(new Error('El correu ja està registrat'), { status: 409 });
 }
