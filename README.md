@@ -148,8 +148,8 @@ A cada PR que toqui `apps/api-node/**` o `apps/python-service/**`, la CI corresp
 
 ## Com treballem
 
-- Canvis via **pull request** a `main`
-- Commits preferiblement en [Conventional Commits](https://www.conventionalcommits.org/) amb referència Taiga, p. ex. `feat(api): filtre per categoria` + `Refs: #80`
+- Branques `main` / `development` i `feature/<id>-<nom>` → PR (vegeu [CONTRIBUTING.md](CONTRIBUTING.md) i [docs/git-workflow.md](docs/git-workflow.md))
+- Commits: `task #<id>: resum en imperatiu` (≤ 50 caràcters el resum)
 - El front consumeix només aquesta API: [Caliu-FrontEnd](https://github.com/pes2627q1-11-gei-upc/Caliu-FrontEnd)
 
 ## Equip

@@ -2,9 +2,10 @@ name: CI api-node
 
 on:
   pull_request:
+    branches: [main, development]
     paths: ["apps/api-node/**"]
   push:
-    branches: [main]
+    branches: [main, development]
     paths: ["apps/api-node/**"]
 
 jobs:
