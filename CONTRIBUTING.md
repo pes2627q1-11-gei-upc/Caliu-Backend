@@ -1,22 +1,51 @@
 # Com contribuir — Caliu Backend
 
-Gràcies per contribuir al backend de Caliu.
-
 ## Abans de començar
 
 1. Llegeix [docs/onboarding.md](docs/onboarding.md) i aixeca Docker.
 2. Mira el contracte [docs/openapi.yaml](docs/openapi.yaml) abans de canviar rutes o camps.
 3. Agafa la història a **Taiga** (*Cultura't - Caliu*) i marca-la *In progress*.
 
-## Flux
+## Flux Git (estil Git Flow)
 
-1. Branca des de `main` (o `development`).
-2. Canvis petits i enfocats a una història.
-3. Tests: `cd apps/api-node && npm test` (i pytest si toques Python).
-4. PR amb `Refs: #NN` al cos o als commits.
-5. Quan es mergeï, actualitza Taiga (*Ready for test* / *Closed*).
+| Branca | Ús |
+|--------|-----|
+| `main` | Estable / entregable |
+| `development` | Integració del sprint |
+| `feature/<id-taiga>-<nom>` | Una tasca; surt de `development` i hi torna amb PR |
 
-Detall de branques i missatges: [docs/git-workflow.md](docs/git-workflow.md).
+Exemple de branca: `feature/80-filtre-categoria`
+
+1. `git checkout development && git pull`
+2. `git checkout -b feature/<id>-<nom-curt>`
+3. Commits i push de la branca
+4. **Pull request** cap a `development` (plantilla a `.github/pull_request_template.md`)
+5. Quan calgui alliberar: PR de `development` → `main`
+6. Actualitza Taiga en merge (*Ready for test* / *Closed*)
+
+Més detall: [docs/git-workflow.md](docs/git-workflow.md).
+
+## Commits
+
+Format: `task #<id>: <resum en imperatiu>`  
+El resum (després dels dos punts) **≤ 50 caràcters**.
+
+```
+task #80: afegeix filtre per categoria a /events
+```
+
+## Tests abans del PR
+
+```powershell
+cd apps/api-node
+npm test
+
+# si toques Python:
+cd apps/python-service
+python -m pytest
+```
+
+La CI executa `test-node` i `test-python` a totes les PR cap a `development` i `main`, i als pushes a aquestes branques.
 
 ## Estil de codi
 

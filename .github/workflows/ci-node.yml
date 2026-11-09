@@ -2,13 +2,13 @@ name: CI api-node
 
 on:
   pull_request:
-    paths: ["apps/api-node/**"]
+    branches: [main, development]
   push:
-    branches: [main]
-    paths: ["apps/api-node/**"]
+    branches: [main, development]
 
 jobs:
   test:
+    name: test-node
     runs-on: ubuntu-latest
     defaults:
       run:

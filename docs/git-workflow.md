@@ -1,29 +1,40 @@
 # Flux de Git — Caliu
 
+Estil **Git Flow** simplificat: `main` + `development` + branques `feature/...`.
+
 ## Branques
 
-- `main` — branca estable; el que es demostra i es revisa
-- `feature/...` o `fix/...` — treball en curs (opcional però recomanat)
-- Alguns canvis van per la branca `development` i es fusionen amb PR
+| Branca | Ús |
+|--------|-----|
+| `main` | Estable; el que es demostra i es desplega |
+| `development` | Integració contínua del sprint |
+| `feature/<id-taiga>-<nom>` | Treball d’una tasca Taiga |
+
+La feature **surt de** `development` i **hi torna** amb pull request.  
+Per alliberar: PR de `development` → `main`.
+
+Exemple: `feature/80-filtre-categoria`
 
 ## Pull requests
 
-1. Obre un PR cap a `main` (o `development` si l’equip ho acorda).
-2. Descripció: què canvia, com provar-ho, enllaç Taiga (`#NN`).
-3. La CI ha de passar (api-node / python-service / Flutter segons el repo).
+1. Obre el PR cap a `development` (o `development` → `main` per release).
+2. Omple la plantilla (`.github/pull_request_template.md`): tasca Taiga, què/per què, proves, checklist DoD.
+3. La CI ha de passar (`ci-node` / `ci-python` / Flutter al front).
 4. Almenys una revisió abans de merge, quan sigui possible.
+5. Actualitza Taiga després del merge.
 
 ## Commits
 
-Estil [Conventional Commits](https://www.conventionalcommits.org/):
-
 ```
-feat(api): filtre per categoria a GET /events
-
-Refs: #80
+task #<id>: <resum en imperatiu>
 ```
 
-Tipus habituals: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`.
+- Imperatiu (`afegeix`, `corregeix`, `documenta`…).
+- Resum **≤ 50 caràcters** (part després de `: `).
+
+```
+task #80: afegeix filtre per categoria a /events
+```
 
 ## Secrets
 

@@ -1,7 +1,7 @@
 import mongoose from 'mongoose';
 import Event from '../models/Event.js';
 import { EVENT_CATEGORIES } from '../domain/eventCategories.js';
-import { parseEventQuery, parseSearchQuery } from '../domain/eventQuery.js';
+import { parseEventQuery, parseNearbyQuery, parseSearchQuery } from '../domain/eventQuery.js';
 
 // Document de Mongo (lean) -> JSON de l'API: _id passa a "id" i s'amaguen camps interns.
 function toApi(doc) {
@@ -51,6 +51,17 @@ export async function listEvents(req, res, next) {
 export async function searchEvents(req, res, next) {
   try {
     const parsed = parseSearchQuery(req.query);
+    const { items, total } = await findEvents(parsed);
+    res.json({ items: items.map(toApi), page: parsed.page, limit: parsed.limit, total });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// GET /events/nearby?lat=&lng=&radiusKm=: esdeveniments propers, ordenats per distància (vegeu parseNearbyQuery).
+export async function nearbyEvents(req, res, next) {
+  try {
+    const parsed = parseNearbyQuery(req.query);
     const { items, total } = await findEvents(parsed);
     res.json({ items: items.map(toApi), page: parsed.page, limit: parsed.limit, total });
   } catch (err) {
