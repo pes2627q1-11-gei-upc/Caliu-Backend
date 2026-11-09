@@ -144,7 +144,7 @@ pip install -r requirements.txt
 python -m pytest
 ```
 
-A cada PR que toqui `apps/api-node/**` o `apps/python-service/**`, la CI corresponent s’executa automàticament.
+A cada PR cap a `development` o `main`, la CI executa automàticament `test-node` i `test-python`.
 
 ## Com treballem
 

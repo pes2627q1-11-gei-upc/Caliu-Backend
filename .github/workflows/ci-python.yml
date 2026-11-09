@@ -3,13 +3,12 @@ name: CI python-service
 on:
   pull_request:
     branches: [main, development]
-    paths: ["apps/python-service/**"]
   push:
     branches: [main, development]
-    paths: ["apps/python-service/**"]
 
 jobs:
   test:
+    name: test-python
     runs-on: ubuntu-latest
     defaults:
       run:
