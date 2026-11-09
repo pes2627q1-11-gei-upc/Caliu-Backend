@@ -45,7 +45,7 @@ cd apps/python-service
 python -m pytest
 ```
 
-La CI (`ci-node` / `ci-python`) corre a les PR cap a `development` i `main` quan canvien els paths corresponents.
+La CI executa `test-node` i `test-python` a totes les PR cap a `development` i `main`, i als pushes a aquestes branques.
 
 ## Estil de codi
 
