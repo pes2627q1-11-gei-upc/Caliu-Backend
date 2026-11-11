@@ -20,6 +20,7 @@ URL actual: **https://caliu-api.onrender.com**
 | Dockerfile | `Dockerfile` (dins d’aquest directori) |
 | `MONGO_URI` | URI d’Atlas amb `/Caliu?...` |
 | `JWT_SECRET` | string llarg (només a Render) |
+| `CORS_ORIGINS` | `http://localhost:5000,https://pes2627q1-11-gei-upc.github.io` (Flutter Web de testing) |
 
 `PORT` el posa Render sol.
 

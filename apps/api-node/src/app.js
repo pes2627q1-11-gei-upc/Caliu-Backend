@@ -3,11 +3,14 @@ import eventsRoutes from './routes/events.routes.js';
 import authRoutes from './routes/auth.routes.js';
 import usersRoutes from './routes/users.routes.js';
 import { errorHandler, notFound } from './middlewares/errorHandler.js';
+import { createCors } from './middlewares/cors.js';
 
 // Aquí només es configura l'aplicació. NO s'obre cap port (vegeu server.js),
 // així es pot testejar amb supertest.
 const app = express();
 
+// CORS abans de tot (inclòs /health): el preflight OPTIONS ha de respondre sense passar per auth.
+app.use(createCors());
 app.use(express.json());
 
 app.get('/health', (_req, res) => {
