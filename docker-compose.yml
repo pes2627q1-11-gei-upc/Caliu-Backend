@@ -25,6 +25,7 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       JWT_TTL_SECONDS: ${JWT_TTL_SECONDS:-3600}
       PYTHON_SERVICE_URL: ${PYTHON_SERVICE_URL}
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
     ports:
       - "${NODE_PORT:-3000}:3000"
     depends_on:
