@@ -19,4 +19,4 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -r requirements.txt
-      - run: python -m pytest
+      - run: python -m pytest --cov=app --cov-report=term
