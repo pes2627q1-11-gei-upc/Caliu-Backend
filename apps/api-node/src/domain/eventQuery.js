@@ -149,8 +149,7 @@ export function parseSearchQuery(query = {}, now = new Date()) {
   }
 
   // "q" no es passa a parseEventQuery: allà també cerca a lloc i municipi, i aquí no volem això.
-  const rest = { ...query };
-  delete rest.q;
+  const { q: _q, ...rest } = query;
   const parsed = parseEventQuery(rest, now);
 
   const terms = q.split(/\s+/).slice(0, MAX_SEARCH_TERMS);

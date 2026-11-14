@@ -14,6 +14,13 @@ export default [
         ...globals.node,
       },
     },
+    rules: {
+      // Permet `const { passwordHash, ...rest } = user` i noms `_q` / `__v`.
+      'no-unused-vars': [
+        'error',
+        { ignoreRestSiblings: true, varsIgnorePattern: '^_' },
+      ],
+    },
   },
   {
     files: ['tests/**/*.js', '**/*.test.js', '**/*.integration.js'],

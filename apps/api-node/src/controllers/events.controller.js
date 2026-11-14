@@ -5,10 +5,7 @@ import { parseEventQuery, parseNearbyQuery, parseSearchQuery } from '../domain/e
 
 // Document de Mongo (lean) -> JSON de l'API: _id passa a "id" i s'amaguen camps interns.
 function toApi(doc) {
-  const { _id, ...rest } = doc;
-  delete rest.__v;
-  delete rest.createdAt;
-  delete rest.updatedAt;
+  const { _id, __v, createdAt, updatedAt, ...rest } = doc;
   const out = { id: String(_id), ...rest };
   if (typeof out.distanceMeters === 'number') out.distanceMeters = Math.round(out.distanceMeters);
   return out;
