@@ -7,6 +7,7 @@
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
+    "test:coverage": "node --experimental-vm-modules node_modules/jest/bin/jest.js --coverage",
     "test:integration": "node --experimental-vm-modules node_modules/jest/bin/jest.js --runInBand --testRegex=users.integration.js$",
     "users:audit": "node src/scripts/auditUsers.js",
     "seed": "node src/scripts/seed.js",
@@ -24,7 +25,6 @@
     "supertest": "^7.0.0"
   },
   "jest": {
-    "collectCoverage": true,
     "coverageThreshold": {
       "global": {
         "lines": 90,
