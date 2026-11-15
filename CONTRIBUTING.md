@@ -43,7 +43,7 @@ npm test
 # si toques Python:
 cd apps/python-service
 pip install -r requirements-dev.txt
-python -m pytest --cov=app --cov-report=term --cov-fail-under=80
+python -m pytest
 ```
 
 La CI executa `test-node` i `test-python` a totes les PR cap a `development` i `main`, i als pushes a aquestes branques.

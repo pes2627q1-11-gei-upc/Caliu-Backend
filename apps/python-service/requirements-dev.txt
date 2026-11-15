@@ -1,4 +1,6 @@
 # Dependències només per tests / CI (Refs: #199).
+# httpx: ara només pel TestClient. Si el xatbot crida APIs externes amb httpx,
+# cal tornar-lo a requirements.txt (si no, fallarà a Docker/Render i no a la CI).
 -r requirements.txt
 pytest>=8.0,<9.0
 pytest-cov>=5.0,<7.0

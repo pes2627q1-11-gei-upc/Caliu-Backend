@@ -141,7 +141,7 @@ npm test
 # python-service
 cd apps/python-service
 pip install -r requirements-dev.txt   # runtime + tests (CI)
-python -m pytest --cov=app --cov-report=term --cov-fail-under=80
+python -m pytest
 ```
 
 A cada PR cap a `development` o `main`, la CI executa automàticament `test-node` i `test-python`.
