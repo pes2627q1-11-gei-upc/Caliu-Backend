@@ -167,7 +167,7 @@ export function parseSearchQuery(query = {}, now = new Date()) {
 // El resultat sempre va ordenat per distància i cada element inclou "distanceMeters".
 export function parseNearbyQuery(query = {}, now = new Date()) {
   if (query.lat === undefined || query.lng === undefined) {
-    throw new QueryError('Paràmetres \"lat\" i \"lng\" obligatoris');
+    throw new QueryError('Paràmetres "lat" i "lng" obligatoris');
   }
   const withRadius = { ...query, radiusKm: query.radiusKm ?? DEFAULT_NEARBY_RADIUS_KM };
   return parseEventQuery(withRadius, now);

@@ -42,6 +42,7 @@ npm test
 
 # si toques Python:
 cd apps/python-service
+pip install -r requirements-dev.txt
 python -m pytest
 ```
 

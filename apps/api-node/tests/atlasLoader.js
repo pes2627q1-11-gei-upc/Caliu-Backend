@@ -14,7 +14,6 @@ const EXPORTED = [
 ];
 
 export function loadTrigger(context) {
-  // eslint-disable-next-line no-new-func
   return new Function('exports', 'context', `${SOURCE}\nreturn { run: exports, ${EXPORTED.join(', ')} };`)(
     undefined,
     context,

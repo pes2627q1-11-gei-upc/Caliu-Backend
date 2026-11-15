@@ -140,7 +140,7 @@ npm test
 
 # python-service
 cd apps/python-service
-pip install -r requirements.txt
+pip install -r requirements-dev.txt   # runtime + tests (CI)
 python -m pytest
 ```
 

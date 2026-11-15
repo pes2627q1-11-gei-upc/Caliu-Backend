@@ -1,19 +1,19 @@
-## Tasca Taiga
+## Resum
 
-- Enllaç / ID: #
+<!-- Què canvia i per què (3–6 bullets). -->
 
-## Què canvia i per què
+-
 
-<!-- Què s’ha fet i per què cal aquest canvi. -->
+## Validació
 
-## Com s’ha provat
+<!-- Què has comprovat i què queda pendent. -->
 
-<!-- Ex.: npm test / pytest, curl local, Docker compose. -->
+- [ ] `npm test` / `pytest` (segons el que toquis)
+- [ ] Prova manual (Docker / curl) si cal
+- [ ] CI en verd a aquesta PR
 
-## Definició de fet
+## Tasca
 
-- [ ] Especificat (criteris d’acceptació clars a Taiga)
-- [ ] Implementat
-- [ ] Provat
-- [ ] Documentat (README / OpenAPI / docs si cal)
-- [ ] Diagrames actualitzats (si el canvi afecta arquitectura o flux)
+<!-- Ex.: Taiga #80. No tanca la tasca fins a … -->
+
+Taiga #
