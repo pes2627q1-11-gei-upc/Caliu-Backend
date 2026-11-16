@@ -3,8 +3,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from app.chatbot.config import get_gemini_api_key
-from app.chatbot.gemini_client import DEFAULT_MODEL, GeminiClient
+from app.chatbot.config import DEFAULT_MODEL, get_gemini_api_key
+from app.chatbot.gemini_client import GeminiClient
 
 
 def test_get_gemini_api_key_missing(monkeypatch):

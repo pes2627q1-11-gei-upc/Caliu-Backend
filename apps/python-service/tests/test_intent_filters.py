@@ -13,6 +13,7 @@ from app.chatbot.intent import (
     normalize_filters,
 )
 from app.chatbot.catalog import EVENT_CATEGORIES
+from app.chatbot.config import DEFAULT_MODEL
 
 # Dimecres 18/11/2026 a les 10:00 (hora de Catalunya, UTC+1).
 NOW = datetime(2026, 11, 18, 10, 0, tzinfo=TZ)
@@ -89,6 +90,15 @@ def test_request_forces_function_calling_with_declared_tool():
     }
     assert "2026-11-18" in config["system_instruction"]
     assert "dimecres" in config["system_instruction"]
+
+
+def test_extraction_uses_shared_default_model(monkeypatch):
+    monkeypatch.delenv("GEMINI_MODEL", raising=False)
+    client = FakeGemini({})
+
+    extract_filters("teatre", now=NOW, client=client)
+
+    assert client.requests[0]["model"] == DEFAULT_MODEL
 
 
 def test_declaration_uses_shared_categories():

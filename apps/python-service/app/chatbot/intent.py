@@ -16,9 +16,9 @@ from app.chatbot.catalog import (
     canonical_category,
     fold,
 )
+from app.chatbot.config import DEFAULT_MODEL
 
 FUNCTION_NAME = "aplicar_filtres_esdeveniments"
-DEFAULT_MODEL = "gemini-2.5-flash"
 MAX_MESSAGE_LENGTH = 500
 
 TZ = ZoneInfo(TIMEZONE)
@@ -254,7 +254,7 @@ def extract_filters(message: str, now: datetime | None = None, client=None, mode
     }
     try:
         response = client.models.generate_content(
-            model=model or os.environ.get("GEMINI_MODEL") or DEFAULT_MODEL,
+            model=model or os.environ.get("GEMINI_MODEL", "").strip() or DEFAULT_MODEL,
             contents=message,
             config=config,
         )

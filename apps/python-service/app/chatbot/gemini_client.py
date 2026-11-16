@@ -2,9 +2,7 @@ import os
 
 from google import genai
 
-from app.chatbot.config import get_gemini_api_key
-
-DEFAULT_MODEL = "gemini-3.8-flash"
+from app.chatbot.config import DEFAULT_MODEL, get_gemini_api_key
 
 
 class GeminiClient:
