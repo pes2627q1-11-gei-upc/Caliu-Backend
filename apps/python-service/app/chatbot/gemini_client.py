@@ -1,3 +1,5 @@
+import os
+
 from google import genai
 
 from app.chatbot.config import get_gemini_api_key
@@ -6,11 +8,14 @@ DEFAULT_MODEL = "gemini-3.8-flash"
 
 
 class GeminiClient:
-    def __init__(self, api_key: str | None = None, model: str = DEFAULT_MODEL):
-        key = get_gemini_api_key() if api_key is None else api_key.strip()
+    def __init__(self, api_key: str | None = None, model: str | None = None):
+        if api_key is None:
+            key = get_gemini_api_key()
+        else:
+            key = api_key.strip()
         if not key:
-            raise RuntimeError("Falta la variable d'entorn GEMINI_API_KEY")
-        self.model = model
+            raise RuntimeError("La clau GEMINI_API_KEY no pot estar buida")
+        self.model = model or os.environ.get("GEMINI_MODEL", "").strip() or DEFAULT_MODEL
         self._client = genai.Client(api_key=key)
 
     def generate(self, contents: str) -> str:
