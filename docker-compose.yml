@@ -42,8 +42,8 @@ services:
       APP_ENV: ${APP_ENV:-production}
       GEMINI_API_KEY: ${GEMINI_API_KEY}
       GEMINI_MODEL: ${GEMINI_MODEL:-}
-    # Servei intern: NO es publica cap port a l'exterior.
-    # Només api-node hi accedeix, per la xarxa de Docker.
+    # Servei intern sense autenticació pròpia: no publicar el port ni eliminar
+    # l'aïllament de xarxa; només api-node hi ha d'accedir.
     expose:
       - "8000"
     depends_on:

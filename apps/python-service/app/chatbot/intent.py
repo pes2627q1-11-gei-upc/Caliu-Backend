@@ -245,6 +245,8 @@ def build_system_instruction(now: datetime) -> str:
         "Regles:\n"
         "- Omple només el que l'usuari diu o implica clarament. No inventis dates, categories, "
         "públic, ubicacions ni preus. Extreu el municipi o la comarca si l'usuari els esmenta.\n"
+        "- Si el contingut inclou missatges anteriors i un missatge actual, conserva els filtres "
+        "anteriors que no contradiguin la petició actual; el missatge actual preval si els canvia.\n"
         "- 'nens', 'canalla', 'infants', 'els petits' -> audience 'infantil'; "
         "'família', 'en família' -> audience 'familiar'.\n"
         "- 'a la tarda' sense dia -> només time_of_day; no posis date_from.\n"
