@@ -4,7 +4,7 @@
 flowchart LR
   APP["Flutter app\nCaliu-FrontEnd"] -->|HTTP JSON| API["api-node\nExpress :3000"]
   API --> MONGO[(MongoDB\nlocal o Atlas)]
-  API -.-> PY["python-service\nFastAPI"]
+  API -->|JWT intern| PY["python-service\nFastAPI"]
   TRIGGER["Atlas Trigger\n/ docs/atlas"] --> MONGO
   OPEN["Dades Obertes\nGenCat"] --> TRIGGER
 ```
@@ -14,9 +14,9 @@ flowchart LR
 | Peça | Repo / path | Rol |
 |------|-------------|-----|
 | App mòbil | Caliu-FrontEnd | Mapa, cerca, fitxa; consumeix només l’API |
-| api-node | `apps/api-node` | REST: `/health`, `/events`, `/events/:id`, `/events/categories` |
-| python-service | `apps/python-service` | Servei auxiliar (intern a Docker) |
-| MongoDB | Compose o Atlas | Col·lecció `esdeveniments` |
+| api-node | `apps/api-node` | REST i proxy autenticat cap al servei Python |
+| python-service | `apps/python-service` | Servei auxiliar intern a Docker |
+| MongoDB | Compose o Atlas | Col·leccions `esdeveniments`, `sessionsXatbot` i `missatgesXatbot` |
 | Ingesta | Atlas Trigger + `docs/atlas/` | Omple la BD des de dades obertes |
 
 ## Contracte
