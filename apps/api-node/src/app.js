@@ -2,6 +2,7 @@ import express from 'express';
 import eventsRoutes from './routes/events.routes.js';
 import authRoutes from './routes/auth.routes.js';
 import usersRoutes from './routes/users.routes.js';
+import chatRoutes from './routes/chat.routes.js';
 import { errorHandler, notFound } from './middlewares/errorHandler.js';
 import { createCors } from './middlewares/cors.js';
 
@@ -20,6 +21,7 @@ app.get('/health', (_req, res) => {
 app.use('/events', eventsRoutes);
 app.use('/auth', authRoutes);
 app.use('/users', usersRoutes);
+app.use('/chat', chatRoutes);
 
 // Sempre al final
 app.use(notFound);
