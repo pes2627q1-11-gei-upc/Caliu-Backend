@@ -26,6 +26,67 @@ paths:
                   status: { type: string, example: ok }
                   service: { type: string, example: api-node }
 
+  /chat/messages:
+    post:
+      summary: Envia un missatge al xatbot
+      description: |
+        Crea una sessió de xat nova si no s'envia `sessionId`. La sessió existent
+        ha de pertànyer a l'usuari autenticat. Envia al model els últims deu missatges
+        de la sessió (màxim 1000 caràcters per missatge) com a context. Desa el missatge
+        i la resposta només si Python respon.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [message]
+              properties:
+                message: { type: string, minLength: 1, maxLength: 500 }
+                sessionId: { type: string, example: "6710f1c2a1b2c3d4e5f60718" }
+      responses:
+        '200':
+          description: Resposta del xatbot
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sessionId: { type: string }
+                  reply: { type: string }
+        '400':
+          description: Missatge o identificador de sessió no vàlid
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401':
+          description: Cal autenticació
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '404':
+          description: Sessió de xat no trobada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '429':
+          description: Límit de missatges assolit (10 per minut i usuari)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '502':
+          description: Servei Python no disponible
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '500':
+          description: Error intern en la configuració o la persistència
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
   /events:
     get:
       summary: Llista d'esdeveniments (amb filtres i paginació)
@@ -123,6 +184,11 @@ paths:
               schema: { $ref: '#/components/schemas/Error' }
 
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
   schemas:
     Error:
       type: object

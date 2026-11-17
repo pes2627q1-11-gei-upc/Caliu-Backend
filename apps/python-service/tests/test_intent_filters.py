@@ -262,3 +262,5 @@ def test_system_instruction_mentions_rules():
     text = build_system_instruction(NOW)
     assert FUNCTION_NAME in text
     assert "No inventis" in text
+    assert "conserva els filtres anteriors" in text
+    assert "el missatge actual preval" in text
