@@ -51,7 +51,6 @@ export async function proxyToPython({ path, method = 'POST', token, body } = {})
     response = await fetch(url, {
       method,
       headers: {
-        Authorization: `Bearer ${token}`,
         Accept: 'application/json',
         ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
       },
@@ -72,7 +71,9 @@ export async function proxyToPython({ path, method = 'POST', token, body } = {})
     }
   }
   if (!response.ok) {
-    const status = response.status >= 400 && response.status < 500 ? response.status : 502;
+    const status = response.status >= 400 && response.status < 500 && response.status !== 422
+      ? response.status
+      : 502;
     throw httpError(status, status === 401 ? 'Sessió no vàlida' : 'El servei de xatbot ha fallat');
   }
   return payload;

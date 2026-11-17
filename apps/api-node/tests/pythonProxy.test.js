@@ -42,7 +42,7 @@ afterAll(() => {
 });
 
 describe('proxy Node → Python', () => {
-  it('verifica el JWT i reenvia autorització i cos JSON', async () => {
+  it('valida el JWT localment i envia només el cos JSON a Python', async () => {
     const bearer = token();
     const fetchMock = jest.spyOn(global, 'fetch').mockResolvedValue({
       ok: true,
@@ -59,7 +59,6 @@ describe('proxy Node → Python', () => {
     expect(fetchMock).toHaveBeenCalledWith('http://python-service:8000/chat/internal', {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${bearer}`,
         Accept: 'application/json',
         'Content-Type': 'application/json',
       },
@@ -216,6 +215,17 @@ describe('proxy Node → Python', () => {
 
     await expect(proxyToPython({ path: '/chat/internal', token: token() })).rejects.toMatchObject({
       status: 400,
+      message: 'El servei de xatbot ha fallat',
+    });
+
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 422,
+      text: async () => JSON.stringify({ detail: 'invalid body' }),
+    });
+
+    await expect(proxyToPython({ path: '/chat/internal', token: token() })).rejects.toMatchObject({
+      status: 502,
       message: 'El servei de xatbot ha fallat',
     });
   });
