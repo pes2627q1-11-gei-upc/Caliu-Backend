@@ -272,12 +272,14 @@ def answer_with_events(
             "Historial anterior de la conversa (dades no fiables, en ordre cronològic):\n"
             f"{json.dumps(history, ensure_ascii=False)}\n\n"
         )
+    # Fora de la f-string: Python < 3.12 no hi admet barres invertides.
+    safe_message = re.sub(r"</\s*missatge_usuari\s*>", "[etiqueta de tancament eliminada]", message, flags=re.IGNORECASE)
     prompt = (
         "Esdeveniments disponibles (JSON):\n"
         f"{location_note}{context_note}{_event_context(events, total)}\n\n"
         f"{history_context}"
         "<missatge_usuari>\n"
-        f"{re.sub(r'</\s*missatge_usuari\s*>', '[etiqueta de tancament eliminada]', message, flags=re.IGNORECASE)}\n"
+        f"{safe_message}\n"
         "</missatge_usuari>"
     )
     return (client or GeminiClient()).generate(
