@@ -62,6 +62,13 @@ PHRASES = [
          "timeOfDay": None, "categories": ["Música", "Tallers"], "audience": "infantil", "maxPrice": None},
     ),
     (
+        "teatre a Girona aquest dissabte",
+        {"categories": ["Teatre"], "municipality": "Girona", "date_from": "2026-11-21"},
+        {"from": "2026-11-21T00:00:00+01:00", "to": "2026-11-21T23:59:59+01:00",
+         "timeOfDay": None, "categories": ["Teatre"], "audience": None, "maxPrice": None,
+         "municipality": "Girona"},
+    ),
+    (
         "hola, què em recomanes?",
         {},
         {"from": None, "to": None, "timeOfDay": None, "categories": [], "audience": None, "maxPrice": None},
@@ -104,7 +111,17 @@ def test_extraction_uses_shared_default_model(monkeypatch):
 def test_declaration_uses_shared_categories():
     props = FUNCTION_DECLARATION["parameters"]["properties"]
     assert props["categories"]["items"]["enum"] == EVENT_CATEGORIES
-    assert set(props) == {"date_from", "date_to", "time_of_day", "categories", "audience", "max_price", "free"}
+    assert set(props) == {
+        "date_from", "date_to", "municipality", "comarca", "time_of_day", "categories",
+        "audience", "max_price", "free",
+    }
+
+
+def test_location_filters_are_trimmed_and_limited():
+    filters = normalize_filters({"municipality": " Girona ", "comarca": "Gironès"}, NOW)
+    assert filters.municipality == "Girona"
+    assert filters.comarca == "Gironès"
+    assert normalize_filters({"municipality": "x" * 101}, NOW).municipality == "x" * 100
 
 
 def test_no_function_call_means_no_filters():
@@ -191,6 +208,25 @@ def test_only_date_to_starts_today():
 def test_invalid_dates_are_dropped(args):
     f = normalize_filters(args, NOW)
     assert f.from_ is None and f.to is None and f.time_of_day is None
+
+
+def test_past_date_is_marked_instead_of_becoming_an_unfiltered_search():
+    filters = normalize_filters({"date_from": "2026-11-17"}, NOW)
+
+    assert filters.from_ is None
+    assert filters.to is None
+    assert filters.date_passed is True
+    assert filters.is_empty() is False
+    assert filters.to_dict()["datePassed"] is True
+
+
+def test_past_time_slot_on_today_is_marked():
+    filters = normalize_filters(
+        {"date_from": "2026-11-18", "time_of_day": "mati"},
+        datetime(2026, 11, 18, 15, 0, tzinfo=TZ),
+    )
+
+    assert filters.date_passed is True
 
 
 def test_summer_time_offset():

@@ -45,6 +45,14 @@ FUNCTION_DECLARATION = {
                     "('aquest cap de setmana' = dissabte a diumenge)."
                 ),
             },
+            "municipality": {
+                "type": "STRING",
+                "description": "Municipi concret on l'usuari vol trobar esdeveniments.",
+            },
+            "comarca": {
+                "type": "STRING",
+                "description": "Comarca concreta on l'usuari vol trobar esdeveniments.",
+            },
             "time_of_day": {
                 "type": "STRING",
                 "format": "enum",
@@ -86,6 +94,9 @@ class IntentExtractionError(Exception):
 class EventFilters:
     from_: datetime | None = None
     to: datetime | None = None
+    date_passed: bool = False
+    municipality: str | None = None
+    comarca: str | None = None
     time_of_day: str | None = None
     categories: list[str] = field(default_factory=list)
     audience: str | None = None
@@ -95,13 +106,16 @@ class EventFilters:
         return (
             self.from_ is None
             and self.to is None
+            and not self.date_passed
+            and self.municipality is None
+            and self.comarca is None
             and not self.categories
             and self.audience is None
             and self.max_price is None
         )
 
     def to_dict(self) -> dict:
-        return {
+        result = {
             "from": self.from_.isoformat() if self.from_ else None,
             "to": self.to.isoformat() if self.to else None,
             "timeOfDay": self.time_of_day,
@@ -109,6 +123,13 @@ class EventFilters:
             "audience": self.audience,
             "maxPrice": self.max_price,
         }
+        if self.municipality:
+            result["municipality"] = self.municipality
+        if self.comarca:
+            result["comarca"] = self.comarca
+        if self.date_passed:
+            result["datePassed"] = True
+        return result
 
 
 def _parse_day(value) -> date | None:
@@ -126,7 +147,11 @@ def _at(day: date, hour: int) -> datetime:
     return datetime.combine(day, time(hour), TZ)
 
 
-def _resolve_dates(args: dict, now: datetime, slot: str | None) -> tuple[datetime | None, datetime | None]:
+def _resolve_dates(
+    args: dict,
+    now: datetime,
+    slot: str | None,
+) -> tuple[datetime | None, datetime | None, bool]:
     today = now.date()
     day_from = _parse_day(args.get("date_from"))
     day_to = _parse_day(args.get("date_to"))
@@ -142,17 +167,19 @@ def _resolve_dates(args: dict, now: datetime, slot: str | None) -> tuple[datetim
 
     if not day_from:
         if not slot:
-            return None, None
+            return None, None, False
         # Només franja ("a la tarda"): avui, o demà si ja s'ha acabat.
         day_from = day_to = today if _at(today, end_h) > now else today + timedelta(days=1)
 
     if day_to < today:
-        return None, None
+        return None, None, True
 
     start, end = _at(day_from, start_h), _at(day_to, end_h)
+    if end < now:
+        return None, None, True
     if start < now < end:
         start = now.replace(microsecond=0)
-    return start, end
+    return start, end, False
 
 
 def _parse_price(args: dict) -> float | None:
@@ -187,10 +214,20 @@ def normalize_filters(args: dict | None, now: datetime | None = None) -> EventFi
     if audience not in AUDIENCES:
         audience = None
 
-    start, end = _resolve_dates(args, now, slot)
+    municipality = args.get("municipality")
+    municipality = municipality.strip()[:100] if isinstance(municipality, str) else None
+    municipality = municipality or None
+    comarca = args.get("comarca")
+    comarca = comarca.strip()[:100] if isinstance(comarca, str) else None
+    comarca = comarca or None
+
+    start, end, date_passed = _resolve_dates(args, now, slot)
     return EventFilters(
         from_=start,
         to=end,
+        date_passed=date_passed,
+        municipality=municipality,
+        comarca=comarca,
         time_of_day=slot if start else None,
         categories=categories,
         audience=audience,
@@ -207,7 +244,7 @@ def build_system_instruction(now: datetime) -> str:
         f"{local.strftime('%H:%M')} (hora de Catalunya). Calcula les dates relatives a partir d'avui.\n"
         "Regles:\n"
         "- Omple només el que l'usuari diu o implica clarament. No inventis dates, categories, "
-        "públic ni preus.\n"
+        "públic, ubicacions ni preus. Extreu el municipi o la comarca si l'usuari els esmenta.\n"
         "- 'nens', 'canalla', 'infants', 'els petits' -> audience 'infantil'; "
         "'família', 'en família' -> audience 'familiar'.\n"
         "- 'a la tarda' sense dia -> només time_of_day; no posis date_from.\n"
