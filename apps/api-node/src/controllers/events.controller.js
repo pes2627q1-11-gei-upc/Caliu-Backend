@@ -83,3 +83,24 @@ export async function getEvent(req, res, next) {
 export function listCategories(_req, res) {
   res.json({ categories: EVENT_CATEGORIES });
 }
+
+// Catàleg de parelles comarca/municipi amb esdeveniments disponibles.
+export async function listLocations(_req, res, next) {
+  try {
+    const { filter } = parseEventQuery({});
+    const locations = await Event.aggregate([
+      { $match: filter },
+      { $project: {
+        comarca: { $trim: { input: { $ifNull: ['$comarca', ''] } } },
+        municipality: { $trim: { input: { $ifNull: ['$municipality', ''] } } },
+      } },
+      { $match: { $or: [{ comarca: { $ne: '' } }, { municipality: { $ne: '' } }] } },
+      { $group: { _id: { comarca: '$comarca', municipality: '$municipality' } } },
+      { $sort: { '_id.comarca': 1, '_id.municipality': 1 } },
+      { $project: { _id: 0, comarca: '$_id.comarca', municipality: '$_id.municipality' } },
+    ]);
+    res.json({ locations });
+  } catch (err) {
+    next(err);
+  }
+}

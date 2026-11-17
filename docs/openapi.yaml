@@ -81,6 +81,30 @@ paths:
                     items: { type: string }
                     example: ["Música", "Teatre", "Gastronomia"]
 
+  /events/locations:
+    get:
+      summary: Comarques i municipis amb esdeveniments disponibles
+      description: Parelles úniques, sense camps buits si tots dos són desconeguts. Independent dels filtres de cerca.
+      responses:
+        '200':
+          description: Catàleg de localitats, pot ser buit
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [locations]
+                properties:
+                  locations:
+                    type: array
+                    items:
+                      type: object
+                      required: [comarca, municipality]
+                      properties:
+                        comarca: { type: string }
+                        municipality: { type: string }
+        '500':
+          description: Error intern del servidor
+
   /events/{id}:
     get:
       summary: Detall d'un esdeveniment
