@@ -100,6 +100,7 @@ Endpoints principals:
 | `GET` | `/health` | Estat del servei |
 | `GET` | `/events` | Llista amb filtres i paginació |
 | `GET` | `/events/categories` | Categories disponibles |
+| `GET` | `/events/locations` | Parelles úniques de comarca i municipi amb esdeveniments disponibles |
 | `GET` | `/events/:id` | Detall d’un esdeveniment |
 
 Coordenades en ordre **GeoJSON** `[lng, lat]`. Errors: `{ "error": "…" }`.
