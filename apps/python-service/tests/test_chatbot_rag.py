@@ -88,6 +88,10 @@ class FakeCollection:
             return left, right
 
         for field, condition in query.items():
+            if field == "$or":
+                if not any(self._matches(document, sub, collation) for sub in condition):
+                    return False
+                continue
             if field == "$expr":
                 start = document.get("startDate")
                 end = document.get("endDate")
@@ -231,6 +235,121 @@ def test_retrieval_filters_by_date_location_category_audience_and_price(monkeypa
     assert query["categories"] == {"$in": ["Teatre"]}
     assert query["tags"] == {"$in": ["Infantil", "Família"]}
     assert query["price"] == {"$gte": 0, "$lte": 10}
+
+
+WEEKEND_AFTERNOON = {"date_from": "2026-11-21", "date_to": "2026-11-22", "time_of_day": "tarda"}
+
+
+def test_multi_day_time_of_day_is_checked_on_each_day(monkeypatch):
+    monkeypatch.setenv("APP_ENV", "development")
+    filters = normalize_filters(WEEKEND_AFTERNOON, NOW)
+    collection = FakeCollection([
+        event("Dissabte tarda", datetime(2026, 11, 21, 17, tzinfo=TZ), datetime(2026, 11, 21, 18, tzinfo=TZ)),
+        event("Dissabte nit", datetime(2026, 11, 21, 22, tzinfo=TZ), datetime(2026, 11, 21, 23, tzinfo=TZ)),
+        event("Diumenge matí", datetime(2026, 11, 22, 11, tzinfo=TZ), datetime(2026, 11, 22, 13, tzinfo=TZ)),
+        event("Diumenge tarda", datetime(2026, 11, 22, 16, tzinfo=TZ), datetime(2026, 11, 22, 17, tzinfo=TZ)),
+    ])
+
+    result, total = retrieve_upcoming_events(now=NOW, filters=filters, collection=collection)
+
+    assert [item["title"] for item in result] == ["Dissabte tarda", "Diumenge tarda"]
+    assert total == 2
+    assert collection.queries[0]["$or"] == [
+        {"startDate": {"$lte": datetime(2026, 11, 21, 20, tzinfo=TZ)},
+         "endDate": {"$gte": datetime(2026, 11, 21, 15, tzinfo=TZ)}},
+        {"startDate": {"$lte": datetime(2026, 11, 22, 20, tzinfo=TZ)},
+         "endDate": {"$gte": datetime(2026, 11, 22, 15, tzinfo=TZ)}},
+    ]
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        {"time_of_day": "tarda"},
+        {"date_from": "2026-11-21", "time_of_day": "mati"},
+        {"date_from": "2026-11-19", "date_to": "2027-01-31", "time_of_day": "nit"},
+        {"date_from": "2026-11-21", "date_to": "2026-11-22"},
+    ],
+)
+def test_slot_windows_only_for_multi_day_slots(monkeypatch, args):
+    monkeypatch.setenv("APP_ENV", "development")
+    collection = FakeCollection([])
+    retrieve_upcoming_events(now=NOW, filters=normalize_filters(args, NOW), collection=collection)
+    assert "$or" not in collection.queries[0]
+
+
+def _hours(day, start, end, **fields):
+    return {
+        "start": datetime(2026, 11, day, start, tzinfo=TZ),
+        "end": datetime(2026, 11, day, end, tzinfo=TZ),
+        **fields,
+    }
+
+
+# Dimecres 18/11 a les 10:00; el cap de setmana és el 21-22/11.
+CATALOG = {
+    "Teatre familiar": _hours(18, 16, 18, categories=["Teatre"], tags=["Família", "Infantil"], price=8),
+    "Contacontes matí": _hours(18, 11, 12, categories=["Tallers"], tags=["Infantil"], price=0),
+    "Jazz de nit": _hours(18, 22, 23, categories=["Música"], tags=["Jazz"], price=15),
+    "Taller ceràmica": _hours(21, 10, 12, categories=["Tallers"], tags=["Família", "Infantil"], price=10),
+    "Titelles gratis": _hours(22, 17, 18, categories=["Teatre"], tags=["Infantil"], price=0),
+    "Vermut diumenge": _hours(22, 11, 13, categories=["Música"], tags=[], price=3),
+    "Concert sense preu": _hours(19, 18, 20, categories=["Música"], tags=["Infantil"]),
+    "Concert passat": _hours(10, 18, 19, categories=["Música"], tags=["Infantil"], price=5),
+}
+
+
+def _complies(item, filters, windows):
+    start, end = item["startDate"], item["endDate"]
+    if end < (filters.from_ or NOW) or (filters.to and start > filters.to):
+        return False
+    if windows and not any(
+        start <= w["startDate"]["$lte"] and end >= w["endDate"]["$gte"] for w in windows
+    ):
+        return False
+    if filters.categories and not set(item.get("categories", [])) & set(filters.categories):
+        return False
+    if filters.audience and not set(item.get("tags", [])) & set(rag.AUDIENCE_TAGS[filters.audience]):
+        return False
+    if filters.max_price is not None and not (
+        isinstance(item.get("price"), (int, float)) and item["price"] <= filters.max_price
+    ):
+        return False
+    return True
+
+
+# (frase, arguments que retornaria Gemini, esdeveniments esperats)
+PHRASES = [
+    ("què fer amb nens a la tarda", {"audience": "infantil", "time_of_day": "tarda"}, ["Teatre familiar"]),
+    ("plans en família aquest cap de setmana gratis",
+     {"audience": "familiar", "date_from": "2026-11-21", "date_to": "2026-11-22", "free": True},
+     ["Titelles gratis"]),
+    ("què fer el cap de setmana a la tarda", WEEKEND_AFTERNOON, ["Titelles gratis"]),
+    ("música per menys de 20 euros", {"categories": ["Música"], "max_price": 20},
+     ["Jazz de nit", "Vermut diumenge"]),
+    ("activitats gratis per a nens", {"audience": "infantil", "free": True},
+     ["Contacontes matí", "Titelles gratis"]),
+]
+
+
+@pytest.mark.parametrize("phrase,args,expected", PHRASES, ids=[p[0] for p in PHRASES])
+def test_retrieved_events_comply_with_extracted_filters(monkeypatch, phrase, args, expected):
+    monkeypatch.setenv("APP_ENV", "development")
+    collection = FakeCollection([
+        event(title, data["start"], data["end"], **{k: v for k, v in data.items() if k not in ("start", "end")})
+        for title, data in CATALOG.items()
+    ])
+    filters = normalize_filters(args, NOW)
+
+    result, _ = retrieve_upcoming_events(now=NOW, filters=filters, collection=collection)
+
+    assert sorted(item["title"] for item in result) == sorted(expected)
+    windows = rag._slot_windows(filters)
+    for item in result:
+        assert _complies(item, filters, windows), item["title"]
+    for document in collection.documents:
+        if document["title"] not in expected:
+            assert not _complies(document, filters, windows) or document["endDate"] < NOW, document["title"]
 
 
 def test_seed_events_are_hidden_outside_development(monkeypatch):

@@ -9,14 +9,15 @@ from zoneinfo import ZoneInfo
 from pymongo import MongoClient
 from pymongo.collation import Collation
 
-from app.chatbot.catalog import AUDIENCE_TAGS, TIMEZONE
+from app.chatbot.catalog import AUDIENCE_TAGS, TIME_OF_DAY, TIMEZONE
 from app.chatbot.gemini_client import GeminiClient
-from app.chatbot.intent import EventFilters, IntentExtractionError, WEEKDAYS_CA, extract_filters
+from app.chatbot.intent import EventFilters, IntentExtractionError, WEEKDAYS_CA, _at, extract_filters
 
 EVENTS_COLLECTION = "esdeveniments"
 MAX_CONTEXT_EVENTS = 20
 MAX_DESCRIPTION_LENGTH = 400
 UPCOMING_DAYS = 7
+MAX_SLOT_DAYS = 31
 MONGO_TIMEOUT_MS = 5_000
 SHORT_EVENT_MAX_DURATION = timedelta(days=UPCOMING_DAYS)
 LOCATION_COLLATION = Collation(locale="ca", strength=1)
@@ -64,10 +65,31 @@ def _events_collection():
     return client.get_default_database(default=database)[EVENTS_COLLECTION]
 
 
+# Franja en diversos dies ("el cap de setmana a la tarda"): ha de coincidir amb la d'algun dels dies.
+def _slot_windows(filters: EventFilters) -> list[dict]:
+    if not (filters.time_of_day and filters.from_ and filters.to):
+        return []
+    first, last = filters.from_.astimezone(TZ).date(), filters.to.astimezone(TZ).date()
+    days = (last - first).days + 1
+    if days <= 1 or days > MAX_SLOT_DAYS:
+        return []
+    start_h, end_h = TIME_OF_DAY[filters.time_of_day]
+    windows = []
+    for offset in range(days):
+        day = first + timedelta(days=offset)
+        start = filters.from_ if offset == 0 else _at(day, start_h)
+        end = filters.to if offset == days - 1 else _at(day, end_h)
+        windows.append({"startDate": {"$lte": end}, "endDate": {"$gte": start}})
+    return windows
+
+
 def _event_query(filters: EventFilters, now: datetime) -> dict:
     start = max(filters.from_ or now, now)
     end = filters.to or now + timedelta(days=UPCOMING_DAYS)
     query = {"endDate": {"$gte": start}, "startDate": {"$lte": end}}
+    windows = _slot_windows(filters)
+    if windows:
+        query["$or"] = windows
 
     if filters.categories:
         query["categories"] = {"$in": filters.categories}
@@ -248,11 +270,13 @@ def answer_with_events(
         context_note = "No s'han trobat esdeveniments coincidents amb la cerca.\n"
     else:
         context_note = ""
+    # Fora de la f-string: Python < 3.12 no hi admet barres invertides.
+    safe_message = re.sub(r"</\s*missatge_usuari\s*>", "[etiqueta de tancament eliminada]", message, flags=re.IGNORECASE)
     prompt = (
         "Esdeveniments disponibles (JSON):\n"
         f"{location_note}{context_note}{_event_context(events, total)}\n\n"
         "<missatge_usuari>\n"
-        f"{re.sub(r'</\s*missatge_usuari\s*>', '[etiqueta de tancament eliminada]', message, flags=re.IGNORECASE)}\n"
+        f"{safe_message}\n"
         "</missatge_usuari>"
     )
     return (client or GeminiClient()).generate(
