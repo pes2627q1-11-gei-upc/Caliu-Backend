@@ -9,8 +9,8 @@ docs/atlas/daily_agenda_sync.js, que escriu directament a la col·lecció
 
 app/chatbot/
   Lògica de l'assistent conversacional amb l'API de Gemini: prompts,
-  manteniment del context, gestió d'errors, missatges fora de domini
-  i respostes multilingües.
+  recuperació dels propers esdeveniments de MongoDB, gestió d'errors,
+  missatges fora de domini i respostes multilingües.
 
 app/routers/
   Endpoints interns de FastAPI (p. ex. /health, /chat). Només els crida api-node.
@@ -23,4 +23,3 @@ tests/
 
 Dockerfile / requirements.txt
   Imatge Docker del servei i dependències de Python.
-

@@ -2,6 +2,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
+from google.genai import types
 
 from app.chatbot.config import DEFAULT_MODEL, get_gemini_api_key
 from app.chatbot.gemini_client import GeminiClient
@@ -61,6 +62,29 @@ def test_generate_returns_model_text(monkeypatch):
     mock_client.models.generate_content.assert_called_once_with(
         model=DEFAULT_MODEL,
         contents="Bon dia",
+        config={
+            "temperature": 0.25,
+            "max_output_tokens": 2048,
+            "thinking_config": types.ThinkingConfig(thinking_level="LOW"),
+        },
+    )
+
+
+def test_generate_sends_system_instruction(monkeypatch):
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    mock_client = MagicMock()
+    mock_client.models.generate_content.return_value = SimpleNamespace(text="Hola")
+    with patch("app.chatbot.gemini_client.genai.Client", return_value=mock_client):
+        GeminiClient().generate("Bon dia", system_instruction="Ets l'assistent de Caliu")
+    mock_client.models.generate_content.assert_called_once_with(
+        model=DEFAULT_MODEL,
+        contents="Bon dia",
+        config={
+            "temperature": 0.25,
+            "max_output_tokens": 2048,
+            "thinking_config": types.ThinkingConfig(thinking_level="LOW"),
+            "system_instruction": "Ets l'assistent de Caliu",
+        },
     )
 
 
@@ -71,4 +95,17 @@ def test_generate_rejects_empty_response(monkeypatch):
     with patch("app.chatbot.gemini_client.genai.Client", return_value=mock_client):
         client = GeminiClient()
         with pytest.raises(RuntimeError, match="no ha retornat text"):
+            client.generate("Bon dia")
+
+
+def test_generate_reports_max_token_truncation(monkeypatch):
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    mock_client = MagicMock()
+    mock_client.models.generate_content.return_value = SimpleNamespace(
+        text="Resposta parcial",
+        candidates=[SimpleNamespace(finish_reason=types.FinishReason.MAX_TOKENS)],
+    )
+    with patch("app.chatbot.gemini_client.genai.Client", return_value=mock_client):
+        client = GeminiClient()
+        with pytest.raises(RuntimeError, match="truncat la resposta"):
             client.generate("Bon dia")
