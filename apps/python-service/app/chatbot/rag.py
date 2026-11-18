@@ -67,20 +67,24 @@ def _events_collection():
 
 
 # Franja en diversos dies ("el cap de setmana a la tarda"): ha de coincidir amb la d'algun dels dies.
-def _slot_windows(filters: EventFilters) -> list[dict]:
+# Les franges que ja han acabat es descarten i la d'avui comença ara. Com a molt es generen
+# MAX_SLOT_DAYS franges a partir d'avui: en cerques més llargues, la franja es comprova en aquests dies.
+def _slot_windows(filters: EventFilters, now: datetime) -> list[dict]:
     if not (filters.time_of_day and filters.from_ and filters.to):
         return []
     first, last = filters.from_.astimezone(TZ).date(), filters.to.astimezone(TZ).date()
-    days = (last - first).days + 1
-    if days <= 1 or days > MAX_SLOT_DAYS:
+    if last <= first:
         return []
     start_h, end_h = TIME_OF_DAY[filters.time_of_day]
+    first_day = max(first, now.astimezone(TZ).date())
     windows = []
-    for offset in range(days):
-        day = first + timedelta(days=offset)
-        start = filters.from_ if offset == 0 else _at(day, start_h)
-        end = filters.to if offset == days - 1 else _at(day, end_h)
-        windows.append({"startDate": {"$lte": end}, "endDate": {"$gte": start}})
+    for offset in range(min((last - first_day).days + 1, MAX_SLOT_DAYS)):
+        day = first_day + timedelta(days=offset)
+        start = filters.from_ if day == first else _at(day, start_h)
+        end = filters.to if day == last else _at(day, end_h)
+        if end < now:
+            continue
+        windows.append({"startDate": {"$lte": end}, "endDate": {"$gte": max(start, now)}})
     return windows
 
 
@@ -88,7 +92,7 @@ def _event_query(filters: EventFilters, now: datetime) -> dict:
     start = max(filters.from_ or now, now)
     end = filters.to or now + timedelta(days=UPCOMING_DAYS)
     query = {"endDate": {"$gte": start}, "startDate": {"$lte": end}}
-    windows = _slot_windows(filters)
+    windows = _slot_windows(filters, now)
     if windows:
         query["$or"] = windows
 

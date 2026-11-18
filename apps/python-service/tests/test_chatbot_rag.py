@@ -288,7 +288,6 @@ def test_multi_day_time_of_day_is_checked_on_each_day(monkeypatch):
     [
         {"time_of_day": "tarda"},
         {"date_from": "2026-11-21", "time_of_day": "mati"},
-        {"date_from": "2026-11-19", "date_to": "2027-01-31", "time_of_day": "nit"},
         {"date_from": "2026-11-21", "date_to": "2026-11-22"},
     ],
 )
@@ -297,6 +296,71 @@ def test_slot_windows_only_for_multi_day_slots(monkeypatch, args):
     collection = FakeCollection([])
     retrieve_upcoming_events(now=NOW, filters=normalize_filters(args, NOW), collection=collection)
     assert "$or" not in collection.queries[0]
+
+
+def test_past_slot_windows_are_dropped_and_today_starts_now(monkeypatch):
+    # Cerca "dissabte i diumenge a la tarda" feta diumenge a les 10:00.
+    monkeypatch.setenv("APP_ENV", "development")
+    sunday_morning = datetime(2026, 11, 22, 10, tzinfo=TZ)
+    filters = EventFilters(
+        from_=datetime(2026, 11, 21, 15, tzinfo=TZ),
+        to=datetime(2026, 11, 22, 20, tzinfo=TZ),
+        time_of_day="tarda",
+    )
+    collection = FakeCollection([
+        event("Dissabte vespre fins diumenge migdia",
+              datetime(2026, 11, 21, 19, tzinfo=TZ), datetime(2026, 11, 22, 12, tzinfo=TZ)),
+        event("Diumenge tarda", datetime(2026, 11, 22, 16, tzinfo=TZ), datetime(2026, 11, 22, 17, tzinfo=TZ)),
+    ])
+
+    result, total = retrieve_upcoming_events(now=sunday_morning, filters=filters, collection=collection)
+
+    assert [item["title"] for item in result] == ["Diumenge tarda"]
+    assert total == 1
+    assert collection.queries[0]["$or"] == [
+        {"startDate": {"$lte": datetime(2026, 11, 22, 20, tzinfo=TZ)},
+         "endDate": {"$gte": datetime(2026, 11, 22, 15, tzinfo=TZ)}},
+    ]
+
+
+def test_current_slot_window_starts_now(monkeypatch):
+    # Mateixa cerca feta diumenge a les 16:00: el que ja ha acabat aquesta tarda no surt.
+    monkeypatch.setenv("APP_ENV", "development")
+    sunday_afternoon = datetime(2026, 11, 22, 16, tzinfo=TZ)
+    filters = EventFilters(
+        from_=datetime(2026, 11, 21, 15, tzinfo=TZ),
+        to=datetime(2026, 11, 22, 20, tzinfo=TZ),
+        time_of_day="tarda",
+    )
+    collection = FakeCollection([
+        event("Ja acabat", datetime(2026, 11, 22, 15, tzinfo=TZ), datetime(2026, 11, 22, 15, 30, tzinfo=TZ)),
+        event("En curs", datetime(2026, 11, 22, 15, tzinfo=TZ), datetime(2026, 11, 22, 17, tzinfo=TZ)),
+    ])
+
+    result, _ = retrieve_upcoming_events(now=sunday_afternoon, filters=filters, collection=collection)
+
+    assert [item["title"] for item in result] == ["En curs"]
+    assert collection.queries[0]["$or"] == [
+        {"startDate": {"$lte": datetime(2026, 11, 22, 20, tzinfo=TZ)}, "endDate": {"$gte": sunday_afternoon}},
+    ]
+
+
+def test_long_slot_search_keeps_the_slot_for_the_first_days(monkeypatch):
+    # Més de MAX_SLOT_DAYS dies: la franja es continua aplicant, als primers MAX_SLOT_DAYS dies des d'avui.
+    monkeypatch.setenv("APP_ENV", "development")
+    filters = normalize_filters({"date_from": "2026-11-19", "date_to": "2027-01-31", "time_of_day": "nit"}, NOW)
+    collection = FakeCollection([
+        event("Dijous nit", datetime(2026, 11, 19, 22, tzinfo=TZ), datetime(2026, 11, 19, 23, tzinfo=TZ)),
+        event("Dijous matí", datetime(2026, 11, 19, 10, tzinfo=TZ), datetime(2026, 11, 19, 12, tzinfo=TZ)),
+    ])
+
+    result, _ = retrieve_upcoming_events(now=NOW, filters=filters, collection=collection)
+
+    windows = collection.queries[0]["$or"]
+    assert len(windows) == rag.MAX_SLOT_DAYS
+    assert windows[0]["endDate"] == {"$gte": datetime(2026, 11, 19, 21, tzinfo=TZ)}
+    assert windows[-1]["endDate"] == {"$gte": datetime(2026, 12, 19, 21, tzinfo=TZ)}
+    assert [item["title"] for item in result] == ["Dijous nit"]
 
 
 def _hours(day, start, end, **fields):
@@ -365,7 +429,7 @@ def test_retrieved_events_comply_with_extracted_filters(monkeypatch, phrase, arg
     result, _ = retrieve_upcoming_events(now=NOW, filters=filters, collection=collection)
 
     assert sorted(item["title"] for item in result) == sorted(expected)
-    windows = rag._slot_windows(filters)
+    windows = rag._slot_windows(filters, NOW)
     for item in result:
         assert _complies(item, filters, windows), item["title"]
     for document in collection.documents:
