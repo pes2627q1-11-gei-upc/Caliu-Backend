@@ -148,6 +148,19 @@ def test_missing_api_key(monkeypatch):
         extract_filters("x", now=NOW)
 
 
+def test_default_client_has_timeout(monkeypatch):
+    import google.genai
+    import app.chatbot.intent as intent
+
+    created = {}
+    monkeypatch.setenv("GEMINI_API_KEY", "clau-de-prova")
+    monkeypatch.setattr(intent, "_client", None)
+    monkeypatch.setattr(google.genai, "Client", lambda **kwargs: created.update(kwargs) or "client")
+    assert intent._default_client() == "client"
+    assert created["http_options"] == {"timeout": intent.GEMINI_TIMEOUT_MS}
+    monkeypatch.setattr(intent, "_client", None)
+
+
 def test_invented_values_are_dropped():
     filters = normalize_filters(
         {"categories": ["Cinema", "Màgia", 3], "audience": "jubilats", "time_of_day": "matinada",
