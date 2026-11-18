@@ -1,4 +1,4 @@
-import { externalEvent } from '../src/models/Event.js';
+import { externalEvent } from '../src/domain/externalEvent.js';
 
 const start = new Date('2026-12-26T18:00:00.000Z');
 const end = new Date('2026-12-26T20:00:00.000Z');

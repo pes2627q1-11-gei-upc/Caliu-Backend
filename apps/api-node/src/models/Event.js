@@ -63,26 +63,6 @@ eventSchema.index({ location: '2dsphere' });
 eventSchema.index({ startDate: 1, endDate: 1 });
 eventSchema.index({ categories: 1 });
 
-// DTO per als clients externs (#213), segons el contracte amb Xematrip: només títol, dates,
-// horari, ubicació (adreça, municipi, comarca i coordenades), etiquetes i enllaç oficial.
-// Llista explícita: no surt la descripció, categories, preu, imatges, contacte ni cap camp intern.
-export function externalEvent(event) {
-  return {
-    title: event.title,
-    startDate: event.startDate,
-    endDate: event.endDate ?? null,
-    schedule: event.schedule ?? '',
-    location: {
-      address: event.address ?? '',
-      municipality: event.municipality ?? '',
-      comarca: event.comarca ?? '',
-      coordinates: event.location?.coordinates ? [...event.location.coordinates] : null, // [lng, lat]
-    },
-    tags: [...(event.tags ?? [])],
-    url: event.url ?? '',
-  };
-}
-
 // ÚNICA col·lecció de la base de dades: `esdeveniments`. L'omple el trigger d'Atlas
 // (docs/atlas/daily_agenda_sync.js) directament amb aquest esquema. Si es canvia aquí, cal canviar-ho allà.
 export default mongoose.model('Event', eventSchema, 'esdeveniments');
