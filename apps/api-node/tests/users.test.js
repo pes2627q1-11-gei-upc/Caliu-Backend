@@ -2,6 +2,8 @@ import { jest } from '@jest/globals';
 import request from 'supertest';
 import jwt from 'jsonwebtoken';
 import { randomBytes } from 'node:crypto';
+import Event from '../src/models/Event.js';
+import Interaction from '../src/models/Interaction.js';
 import Session from '../src/models/Session.js';
 import User from '../src/models/User.js';
 import { EVENT_CATEGORIES } from '../src/domain/eventCategories.js';
@@ -199,5 +201,52 @@ describe('protecció i errors comuns', () => {
     expect(res.body).toEqual({ error: 'Error intern del servidor' });
     User.findOneAndUpdate.mockResolvedValueOnce(null);
     expect((await auth(request(app)[method](path).send(body))).status).toBe(401);
+  });
+});
+
+describe('#185 alta de preferits', () => {
+  const path = '/users/me/favorites';
+  const eventId = '64b7f0c2a1b2c3d4e5f60720';
+
+  beforeEach(() => {
+    jest.spyOn(Event, 'exists').mockResolvedValue({ _id: eventId });
+    jest.spyOn(Interaction, 'updateOne').mockResolvedValue({ upsertedCount: 1 });
+  });
+
+  it('exigeix autenticació i valida l’identificador abans de consultar Mongo', async () => {
+    expect((await request(app).post(path).send({ eventId })).status).toBe(401);
+    expect((await auth(request(app).post(path)).send({ eventId: 'invalid' })).status).toBe(400);
+    expect(Event.exists).not.toHaveBeenCalled();
+    expect(Interaction.updateOne).not.toHaveBeenCalled();
+  });
+
+  it('retorna 404 si l’esdeveniment no existeix', async () => {
+    Event.exists.mockResolvedValueOnce(null);
+    expect((await auth(request(app).post(path)).send({ eventId })).status).toBe(404);
+    expect(Interaction.updateOne).not.toHaveBeenCalled();
+  });
+
+  it('retorna 204 tant si insereix com si el preferit ja existia', async () => {
+    Interaction.updateOne.mockResolvedValueOnce({ upsertedCount: 1 })
+      .mockResolvedValueOnce({ matchedCount: 1, upsertedCount: 0 });
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const res = await auth(request(app).post(path)).send({ eventId, userId: OTHER_ID });
+      expect(res.status).toBe(204);
+      expect(res.text).toBe('');
+    }
+    expect(Interaction.updateOne).toHaveBeenCalledTimes(2);
+    expect(Interaction.updateOne).toHaveBeenLastCalledWith(
+      { userId: ID, type: 'favorite', eventId },
+      { $setOnInsert: { createdAt: expect.any(Date), updatedAt: expect.any(Date) } },
+      { upsert: true, timestamps: false },
+    );
+  });
+
+  it('accepta una alta concurrent i propaga altres errors de Mongo', async () => {
+    Interaction.updateOne.mockRejectedValueOnce(Object.assign(new Error(), {
+      code: 11000, keyPattern: { userId: 1, type: 1, eventId: 1 },
+    })).mockRejectedValueOnce(new Error('Mongo unavailable'));
+    expect((await auth(request(app).post(path)).send({ eventId })).status).toBe(204);
+    expect((await auth(request(app).post(path)).send({ eventId })).status).toBe(500);
   });
 });
