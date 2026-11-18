@@ -88,6 +88,10 @@ class FakeCollection:
             return left, right
 
         for field, condition in query.items():
+            if field == "$or":
+                if not any(self._matches(document, sub, collation) for sub in condition):
+                    return False
+                continue
             if field == "$expr":
                 start = document.get("startDate")
                 end = document.get("endDate")
@@ -252,6 +256,211 @@ def test_retrieval_filters_by_date_location_category_audience_and_price(monkeypa
     assert query["categories"] == {"$in": ["Teatre"]}
     assert query["tags"] == {"$in": ["Infantil", "Família"]}
     assert query["price"] == {"$gte": 0, "$lte": 10}
+
+
+WEEKEND_AFTERNOON = {"date_from": "2026-11-21", "date_to": "2026-11-22", "time_of_day": "tarda"}
+
+
+def test_multi_day_time_of_day_is_checked_on_each_day(monkeypatch):
+    monkeypatch.setenv("APP_ENV", "development")
+    filters = normalize_filters(WEEKEND_AFTERNOON, NOW)
+    collection = FakeCollection([
+        event("Dissabte tarda", datetime(2026, 11, 21, 17, tzinfo=TZ), datetime(2026, 11, 21, 18, tzinfo=TZ)),
+        event("Dissabte nit", datetime(2026, 11, 21, 22, tzinfo=TZ), datetime(2026, 11, 21, 23, tzinfo=TZ)),
+        event("Diumenge matí", datetime(2026, 11, 22, 11, tzinfo=TZ), datetime(2026, 11, 22, 13, tzinfo=TZ)),
+        event("Diumenge tarda", datetime(2026, 11, 22, 16, tzinfo=TZ), datetime(2026, 11, 22, 17, tzinfo=TZ)),
+    ])
+
+    result, total = retrieve_upcoming_events(now=NOW, filters=filters, collection=collection)
+
+    assert [item["title"] for item in result] == ["Dissabte tarda", "Diumenge tarda"]
+    assert total == 2
+    assert collection.queries[0]["$or"] == [
+        {"startDate": {"$lte": datetime(2026, 11, 21, 20, tzinfo=TZ)},
+         "endDate": {"$gte": datetime(2026, 11, 21, 15, tzinfo=TZ)}},
+        {"startDate": {"$lte": datetime(2026, 11, 22, 20, tzinfo=TZ)},
+         "endDate": {"$gte": datetime(2026, 11, 22, 15, tzinfo=TZ)}},
+    ]
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        {"time_of_day": "tarda"},
+        {"date_from": "2026-11-21", "time_of_day": "mati"},
+        {"date_from": "2026-11-21", "date_to": "2026-11-22"},
+    ],
+)
+def test_slot_windows_only_for_multi_day_slots(monkeypatch, args):
+    monkeypatch.setenv("APP_ENV", "development")
+    collection = FakeCollection([])
+    retrieve_upcoming_events(now=NOW, filters=normalize_filters(args, NOW), collection=collection)
+    assert "$or" not in collection.queries[0]
+
+
+def test_past_slot_windows_are_dropped_and_today_starts_now(monkeypatch):
+    # Cerca "dissabte i diumenge a la tarda" feta diumenge a les 10:00.
+    monkeypatch.setenv("APP_ENV", "development")
+    sunday_morning = datetime(2026, 11, 22, 10, tzinfo=TZ)
+    filters = EventFilters(
+        from_=datetime(2026, 11, 21, 15, tzinfo=TZ),
+        to=datetime(2026, 11, 22, 20, tzinfo=TZ),
+        time_of_day="tarda",
+    )
+    collection = FakeCollection([
+        event("Dissabte vespre fins diumenge migdia",
+              datetime(2026, 11, 21, 19, tzinfo=TZ), datetime(2026, 11, 22, 12, tzinfo=TZ)),
+        event("Diumenge tarda", datetime(2026, 11, 22, 16, tzinfo=TZ), datetime(2026, 11, 22, 17, tzinfo=TZ)),
+    ])
+
+    result, total = retrieve_upcoming_events(now=sunday_morning, filters=filters, collection=collection)
+
+    assert [item["title"] for item in result] == ["Diumenge tarda"]
+    assert total == 1
+    assert collection.queries[0]["$or"] == [
+        {"startDate": {"$lte": datetime(2026, 11, 22, 20, tzinfo=TZ)},
+         "endDate": {"$gte": datetime(2026, 11, 22, 15, tzinfo=TZ)}},
+    ]
+
+
+def test_search_whose_slot_windows_have_all_passed_has_no_possible_match(monkeypatch):
+    # Cerca "dissabte i diumenge a la tarda" feta diumenge a les 21 h: ja no queda cap franja de tarda.
+    # Un esdeveniment de diumenge de 19 a 22 h compleix el filtre global, però no cap franja futura.
+    monkeypatch.setenv("APP_ENV", "development")
+    sunday_night = datetime(2026, 11, 22, 21, tzinfo=TZ)
+    filters = EventFilters(
+        from_=datetime(2026, 11, 21, 15, tzinfo=TZ),
+        to=datetime(2026, 11, 22, 20, tzinfo=TZ),
+        time_of_day="tarda",
+    )
+    collection = FakeCollection([
+        event("Diumenge de 19 a 22 h", datetime(2026, 11, 22, 19, tzinfo=TZ), datetime(2026, 11, 22, 22, tzinfo=TZ)),
+    ])
+
+    assert rag._slot_windows(filters, sunday_night) == []
+    assert rag._event_query(filters, sunday_night) is None
+    assert retrieve_upcoming_events(now=sunday_night, filters=filters, collection=collection) == ([], 0)
+    assert collection.find_args == [] and collection.queries == []
+
+
+def test_search_without_slot_windows_is_not_mistaken_for_an_impossible_one():
+    filters = normalize_filters({"time_of_day": "tarda"}, NOW)
+    assert rag._slot_windows(filters, NOW) is None
+    assert "$or" not in rag._event_query(filters, NOW)
+
+
+def test_current_slot_window_starts_now(monkeypatch):
+    # Mateixa cerca feta diumenge a les 16:00: el que ja ha acabat aquesta tarda no surt.
+    monkeypatch.setenv("APP_ENV", "development")
+    sunday_afternoon = datetime(2026, 11, 22, 16, tzinfo=TZ)
+    filters = EventFilters(
+        from_=datetime(2026, 11, 21, 15, tzinfo=TZ),
+        to=datetime(2026, 11, 22, 20, tzinfo=TZ),
+        time_of_day="tarda",
+    )
+    collection = FakeCollection([
+        event("Ja acabat", datetime(2026, 11, 22, 15, tzinfo=TZ), datetime(2026, 11, 22, 15, 30, tzinfo=TZ)),
+        event("En curs", datetime(2026, 11, 22, 15, tzinfo=TZ), datetime(2026, 11, 22, 17, tzinfo=TZ)),
+    ])
+
+    result, _ = retrieve_upcoming_events(now=sunday_afternoon, filters=filters, collection=collection)
+
+    assert [item["title"] for item in result] == ["En curs"]
+    assert collection.queries[0]["$or"] == [
+        {"startDate": {"$lte": datetime(2026, 11, 22, 20, tzinfo=TZ)}, "endDate": {"$gte": sunday_afternoon}},
+    ]
+
+
+def test_long_slot_search_keeps_the_slot_for_the_first_days(monkeypatch):
+    # Més de MAX_SLOT_DAYS dies: la franja es continua aplicant, als primers MAX_SLOT_DAYS dies des d'avui.
+    monkeypatch.setenv("APP_ENV", "development")
+    filters = normalize_filters({"date_from": "2026-11-19", "date_to": "2027-01-31", "time_of_day": "nit"}, NOW)
+    collection = FakeCollection([
+        event("Dijous nit", datetime(2026, 11, 19, 22, tzinfo=TZ), datetime(2026, 11, 19, 23, tzinfo=TZ)),
+        event("Dijous matí", datetime(2026, 11, 19, 10, tzinfo=TZ), datetime(2026, 11, 19, 12, tzinfo=TZ)),
+    ])
+
+    result, _ = retrieve_upcoming_events(now=NOW, filters=filters, collection=collection)
+
+    windows = collection.queries[0]["$or"]
+    assert len(windows) == rag.MAX_SLOT_DAYS
+    assert windows[0]["endDate"] == {"$gte": datetime(2026, 11, 19, 21, tzinfo=TZ)}
+    assert windows[-1]["endDate"] == {"$gte": datetime(2026, 12, 19, 21, tzinfo=TZ)}
+    assert [item["title"] for item in result] == ["Dijous nit"]
+
+
+def _hours(day, start, end, **fields):
+    return {
+        "start": datetime(2026, 11, day, start, tzinfo=TZ),
+        "end": datetime(2026, 11, day, end, tzinfo=TZ),
+        **fields,
+    }
+
+
+# Dimecres 18/11 a les 10:00; el cap de setmana és el 21-22/11.
+CATALOG = {
+    "Teatre familiar": _hours(18, 16, 18, categories=["Teatre"], tags=["Família", "Infantil"], price=8),
+    "Contacontes matí": _hours(18, 11, 12, categories=["Tallers"], tags=["Infantil"], price=0),
+    "Jazz de nit": _hours(18, 22, 23, categories=["Música"], tags=["Jazz"], price=15),
+    "Taller ceràmica": _hours(21, 10, 12, categories=["Tallers"], tags=["Família", "Infantil"], price=10),
+    "Titelles gratis": _hours(22, 17, 18, categories=["Teatre"], tags=["Infantil"], price=0),
+    "Vermut diumenge": _hours(22, 11, 13, categories=["Música"], tags=[], price=3),
+    "Concert sense preu": _hours(19, 18, 20, categories=["Música"], tags=["Infantil"]),
+    "Concert passat": _hours(10, 18, 19, categories=["Música"], tags=["Infantil"], price=5),
+}
+
+
+def _complies(item, filters, windows):
+    start, end = item["startDate"], item["endDate"]
+    if end < (filters.from_ or NOW) or (filters.to and start > filters.to):
+        return False
+    if windows and not any(
+        start <= w["startDate"]["$lte"] and end >= w["endDate"]["$gte"] for w in windows
+    ):
+        return False
+    if filters.categories and not set(item.get("categories", [])) & set(filters.categories):
+        return False
+    if filters.audience and not set(item.get("tags", [])) & set(rag.AUDIENCE_TAGS[filters.audience]):
+        return False
+    if filters.max_price is not None and not (
+        isinstance(item.get("price"), (int, float)) and item["price"] <= filters.max_price
+    ):
+        return False
+    return True
+
+
+# (frase, arguments que retornaria Gemini, esdeveniments esperats)
+PHRASES = [
+    ("què fer amb nens a la tarda", {"audience": "infantil", "time_of_day": "tarda"}, ["Teatre familiar"]),
+    ("plans en família aquest cap de setmana gratis",
+     {"audience": "familiar", "date_from": "2026-11-21", "date_to": "2026-11-22", "free": True},
+     ["Titelles gratis"]),
+    ("què fer el cap de setmana a la tarda", WEEKEND_AFTERNOON, ["Titelles gratis"]),
+    ("música per menys de 20 euros", {"categories": ["Música"], "max_price": 20},
+     ["Jazz de nit", "Vermut diumenge"]),
+    ("activitats gratis per a nens", {"audience": "infantil", "free": True},
+     ["Contacontes matí", "Titelles gratis"]),
+]
+
+
+@pytest.mark.parametrize("phrase,args,expected", PHRASES, ids=[p[0] for p in PHRASES])
+def test_retrieved_events_comply_with_extracted_filters(monkeypatch, phrase, args, expected):
+    monkeypatch.setenv("APP_ENV", "development")
+    collection = FakeCollection([
+        event(title, data["start"], data["end"], **{k: v for k, v in data.items() if k not in ("start", "end")})
+        for title, data in CATALOG.items()
+    ])
+    filters = normalize_filters(args, NOW)
+
+    result, _ = retrieve_upcoming_events(now=NOW, filters=filters, collection=collection)
+
+    assert sorted(item["title"] for item in result) == sorted(expected)
+    windows = rag._slot_windows(filters, NOW)
+    for item in result:
+        assert _complies(item, filters, windows), item["title"]
+    for document in collection.documents:
+        if document["title"] not in expected:
+            assert not _complies(document, filters, windows) or document["endDate"] < NOW, document["title"]
 
 
 def test_seed_events_are_hidden_outside_development(monkeypatch):

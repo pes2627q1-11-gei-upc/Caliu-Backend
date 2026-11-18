@@ -9,14 +9,15 @@ from zoneinfo import ZoneInfo
 from pymongo import MongoClient
 from pymongo.collation import Collation
 
-from app.chatbot.catalog import AUDIENCE_TAGS, TIMEZONE
+from app.chatbot.catalog import AUDIENCE_TAGS, TIME_OF_DAY, TIMEZONE
 from app.chatbot.gemini_client import GeminiClient
-from app.chatbot.intent import EventFilters, IntentExtractionError, WEEKDAYS_CA, extract_filters
+from app.chatbot.intent import EventFilters, IntentExtractionError, WEEKDAYS_CA, _at, extract_filters
 
 EVENTS_COLLECTION = "esdeveniments"
 MAX_CONTEXT_EVENTS = 20
 MAX_DESCRIPTION_LENGTH = 400
 UPCOMING_DAYS = 7
+MAX_SLOT_DAYS = 31
 MONGO_TIMEOUT_MS = 5_000
 SHORT_EVENT_MAX_DURATION = timedelta(days=UPCOMING_DAYS)
 LOCATION_COLLATION = Collation(locale="ca", strength=1)
@@ -65,10 +66,39 @@ def _events_collection():
     return client.get_default_database(default=database)[EVENTS_COLLECTION]
 
 
-def _event_query(filters: EventFilters, now: datetime) -> dict:
+# Franja en diversos dies ("el cap de setmana a la tarda"): ha de coincidir amb la d'algun dels dies.
+# Les franges que ja han acabat es descarten i la d'avui comença ara. Com a molt es generen
+# MAX_SLOT_DAYS franges a partir d'avui: en cerques més llargues, la franja es comprova en aquests dies.
+# None: la cerca no té franges per dia. []: en té, però ja han passat totes (cap coincidència possible).
+def _slot_windows(filters: EventFilters, now: datetime) -> list[dict] | None:
+    if not (filters.time_of_day and filters.from_ and filters.to):
+        return None
+    first, last = filters.from_.astimezone(TZ).date(), filters.to.astimezone(TZ).date()
+    if last <= first:
+        return None
+    start_h, end_h = TIME_OF_DAY[filters.time_of_day]
+    first_day = max(first, now.astimezone(TZ).date())
+    windows = []
+    for offset in range(min((last - first_day).days + 1, MAX_SLOT_DAYS)):
+        day = first_day + timedelta(days=offset)
+        start = filters.from_ if day == first else _at(day, start_h)
+        end = filters.to if day == last else _at(day, end_h)
+        if end < now:
+            continue
+        windows.append({"startDate": {"$lte": end}, "endDate": {"$gte": max(start, now)}})
+    return windows
+
+
+# None si la cerca no pot tenir cap coincidència.
+def _event_query(filters: EventFilters, now: datetime) -> dict | None:
     start = max(filters.from_ or now, now)
     end = filters.to or now + timedelta(days=UPCOMING_DAYS)
     query = {"endDate": {"$gte": start}, "startDate": {"$lte": end}}
+    windows = _slot_windows(filters, now)
+    if windows == []:
+        return None
+    if windows:
+        query["$or"] = windows
 
     if filters.categories:
         query["categories"] = {"$in": filters.categories}
@@ -98,6 +128,8 @@ def retrieve_upcoming_events(
         return [], 0
 
     query = _event_query(filters, now)
+    if query is None:
+        return [], 0
     start = max(filters.from_ or now, now)
     projection = {field: 1 for field in EVENT_FIELDS}
     projection["_id"] = 1
