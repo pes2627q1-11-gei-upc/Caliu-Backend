@@ -27,8 +27,10 @@ class GeminiClient:
         config = {
             "temperature": temperature,
             "max_output_tokens": max_output_tokens,
-            "thinking_config": types.ThinkingConfig(thinking_level="LOW"),
         }
+        # thinking_level només existeix als models Gemini 3: els anteriors (p. ex. gemini-2.5-flash) el rebutgen amb un 400.
+        if self.model.removeprefix("models/").startswith("gemini-3"):
+            config["thinking_config"] = types.ThinkingConfig(thinking_level="LOW")
         if system_instruction:
             config["system_instruction"] = system_instruction
         response = self._client.models.generate_content(

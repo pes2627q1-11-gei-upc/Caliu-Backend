@@ -88,6 +88,27 @@ def test_generate_sends_system_instruction(monkeypatch):
     )
 
 
+@pytest.mark.parametrize("model", ["gemini-2.5-flash", "models/gemini-2.5-flash-lite"])
+def test_generate_omits_thinking_level_for_models_without_it(monkeypatch, model):
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    mock_client = MagicMock()
+    mock_client.models.generate_content.return_value = SimpleNamespace(text="Hola")
+    with patch("app.chatbot.gemini_client.genai.Client", return_value=mock_client):
+        assert GeminiClient(model=model).generate("Bon dia") == "Hola"
+    config = mock_client.models.generate_content.call_args.kwargs["config"]
+    assert "thinking_config" not in config
+
+
+def test_generate_sends_thinking_level_to_gemini_3_models(monkeypatch):
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    mock_client = MagicMock()
+    mock_client.models.generate_content.return_value = SimpleNamespace(text="Hola")
+    with patch("app.chatbot.gemini_client.genai.Client", return_value=mock_client):
+        GeminiClient(model="models/gemini-3-pro").generate("Bon dia")
+    config = mock_client.models.generate_content.call_args.kwargs["config"]
+    assert config["thinking_config"] == types.ThinkingConfig(thinking_level="LOW")
+
+
 def test_generate_rejects_empty_response(monkeypatch):
     monkeypatch.setenv("GEMINI_API_KEY", "test-key")
     mock_client = MagicMock()
