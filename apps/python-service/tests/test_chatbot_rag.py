@@ -323,6 +323,32 @@ def test_past_slot_windows_are_dropped_and_today_starts_now(monkeypatch):
     ]
 
 
+def test_search_whose_slot_windows_have_all_passed_has_no_possible_match(monkeypatch):
+    # Cerca "dissabte i diumenge a la tarda" feta diumenge a les 21 h: ja no queda cap franja de tarda.
+    # Un esdeveniment de diumenge de 19 a 22 h compleix el filtre global, però no cap franja futura.
+    monkeypatch.setenv("APP_ENV", "development")
+    sunday_night = datetime(2026, 11, 22, 21, tzinfo=TZ)
+    filters = EventFilters(
+        from_=datetime(2026, 11, 21, 15, tzinfo=TZ),
+        to=datetime(2026, 11, 22, 20, tzinfo=TZ),
+        time_of_day="tarda",
+    )
+    collection = FakeCollection([
+        event("Diumenge de 19 a 22 h", datetime(2026, 11, 22, 19, tzinfo=TZ), datetime(2026, 11, 22, 22, tzinfo=TZ)),
+    ])
+
+    assert rag._slot_windows(filters, sunday_night) == []
+    assert rag._event_query(filters, sunday_night) is None
+    assert retrieve_upcoming_events(now=sunday_night, filters=filters, collection=collection) == ([], 0)
+    assert collection.find_args == [] and collection.queries == []
+
+
+def test_search_without_slot_windows_is_not_mistaken_for_an_impossible_one():
+    filters = normalize_filters({"time_of_day": "tarda"}, NOW)
+    assert rag._slot_windows(filters, NOW) is None
+    assert "$or" not in rag._event_query(filters, NOW)
+
+
 def test_current_slot_window_starts_now(monkeypatch):
     # Mateixa cerca feta diumenge a les 16:00: el que ja ha acabat aquesta tarda no surt.
     monkeypatch.setenv("APP_ENV", "development")

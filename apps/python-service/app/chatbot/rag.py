@@ -69,12 +69,13 @@ def _events_collection():
 # Franja en diversos dies ("el cap de setmana a la tarda"): ha de coincidir amb la d'algun dels dies.
 # Les franges que ja han acabat es descarten i la d'avui comença ara. Com a molt es generen
 # MAX_SLOT_DAYS franges a partir d'avui: en cerques més llargues, la franja es comprova en aquests dies.
-def _slot_windows(filters: EventFilters, now: datetime) -> list[dict]:
+# None: la cerca no té franges per dia. []: en té, però ja han passat totes (cap coincidència possible).
+def _slot_windows(filters: EventFilters, now: datetime) -> list[dict] | None:
     if not (filters.time_of_day and filters.from_ and filters.to):
-        return []
+        return None
     first, last = filters.from_.astimezone(TZ).date(), filters.to.astimezone(TZ).date()
     if last <= first:
-        return []
+        return None
     start_h, end_h = TIME_OF_DAY[filters.time_of_day]
     first_day = max(first, now.astimezone(TZ).date())
     windows = []
@@ -88,11 +89,14 @@ def _slot_windows(filters: EventFilters, now: datetime) -> list[dict]:
     return windows
 
 
-def _event_query(filters: EventFilters, now: datetime) -> dict:
+# None si la cerca no pot tenir cap coincidència.
+def _event_query(filters: EventFilters, now: datetime) -> dict | None:
     start = max(filters.from_ or now, now)
     end = filters.to or now + timedelta(days=UPCOMING_DAYS)
     query = {"endDate": {"$gte": start}, "startDate": {"$lte": end}}
     windows = _slot_windows(filters, now)
+    if windows == []:
+        return None
     if windows:
         query["$or"] = windows
 
@@ -124,6 +128,8 @@ def retrieve_upcoming_events(
         return [], 0
 
     query = _event_query(filters, now)
+    if query is None:
+        return [], 0
     start = max(filters.from_ or now, now)
     projection = {field: 1 for field in EVENT_FIELDS}
     projection["_id"] = 1
