@@ -20,6 +20,8 @@ from app.chatbot.config import DEFAULT_MODEL
 
 FUNCTION_NAME = "aplicar_filtres_esdeveniments"
 MAX_MESSAGE_LENGTH = 500
+# Sense límit, el SDK espera la resposta indefinidament i la petició es queda penjada.
+GEMINI_TIMEOUT_MS = 20_000
 
 TZ = ZoneInfo(TIMEZONE)
 WEEKDAYS_CA = ["dilluns", "dimarts", "dimecres", "dijous", "divendres", "dissabte", "diumenge"]
@@ -269,7 +271,7 @@ def _default_client():
             raise IntentExtractionError("GEMINI_API_KEY no està configurada")
         from google import genai
 
-        _client = genai.Client(api_key=api_key)
+        _client = genai.Client(api_key=api_key, http_options={"timeout": GEMINI_TIMEOUT_MS})
     return _client
 
 
