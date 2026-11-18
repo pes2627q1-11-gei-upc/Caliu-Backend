@@ -27,6 +27,7 @@ services:
       PYTHON_SERVICE_URL: ${PYTHON_SERVICE_URL}
       PYTHON_TIMEOUT_MS: ${PYTHON_TIMEOUT_MS:-60000}
       CORS_ORIGINS: ${CORS_ORIGINS:-}
+      EXTERNAL_API_KEYS: ${EXTERNAL_API_KEYS:-}
     ports:
       - "${NODE_PORT:-3000}:3000"
     depends_on:
