@@ -12,7 +12,8 @@ function toApi(doc) {
 }
 
 // Consulta comuna de GET /events i GET /events/search: filtre + (opcionalment) proximitat + paginació.
-async function findEvents({ filter, geo, limit, skip }) {
+// També la reaprofita l'API externa (controllers/external.controller.js).
+export async function findEvents({ filter, geo, limit, skip }) {
   if (geo) {
     // $geoNear ordena per distància i afegeix "distanceMeters" a cada resultat.
     const near = {
