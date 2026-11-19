@@ -54,9 +54,10 @@ def test_filters_endpoint_gemini_down(monkeypatch):
 def test_messages_endpoint_returns_rag_reply(monkeypatch):
     seen = {}
 
-    def fake_answer(message, history):
+    def fake_answer(message, history, language_name):
         seen["message"] = message
         seen["history"] = history
+        seen["language_name"] = language_name
         return "Et recomano un concert."
 
     monkeypatch.setattr(chat_router, "answer_with_events", fake_answer)
@@ -67,8 +68,8 @@ def test_messages_endpoint_returns_rag_reply(monkeypatch):
     })
 
     assert res.status_code == 200
-    assert res.json() == {"reply": "Et recomano un concert."}
-    assert seen == {"message": "i demà?", "history": history}
+    assert res.json() == {"reply": "Et recomano un concert.", "language": "ca"}
+    assert seen == {"message": "i demà?", "history": history, "language_name": "català"}
 
 
 def test_messages_endpoint_validates_message():
@@ -93,7 +94,7 @@ def test_messages_endpoint_validates_message():
 
 
 def test_messages_endpoint_returns_service_unavailable_on_gemini_error(monkeypatch, caplog):
-    def fail(message, history):
+    def fail(message, history, language_name):
         raise RuntimeError("model unavailable")
 
     monkeypatch.setattr(chat_router, "answer_with_events", fail)
@@ -105,7 +106,7 @@ def test_messages_endpoint_returns_service_unavailable_on_gemini_error(monkeypat
 
 
 def test_messages_endpoint_returns_service_unavailable_on_mongo_error(monkeypatch, caplog):
-    def fail(message, history):
+    def fail(message, history, language_name):
         raise PyMongoError("database unavailable")
 
     monkeypatch.setattr(chat_router, "answer_with_events", fail)

@@ -12,6 +12,7 @@ import pytest
 
 from app.chatbot import intent, rag
 from app.chatbot.intent import FUNCTION_NAME, TZ, EventFilters, extract_filters
+from app.chatbot.language import LANGUAGE_NAMES, detect_conversation_language, detect_language
 
 # Dimecres 18/11/2026 a les 10:00. Dissabte = 21.
 NOW = datetime(2026, 11, 18, 10, 0, tzinfo=TZ)
@@ -50,28 +51,6 @@ CHAT = {
     "es": ["¿Qué me recomiendas para hacer con los niños?", "¿Cuál es la capital de Francia?"],
     "en": ["What do you recommend doing with the kids?", "What is the capital of France?"],
 }
-
-# Paraules freqüents i pròpies de cada idioma (sense les que comparteixen, com "de", "la" o "un").
-MARKERS = {
-    "ca": {"amb", "els", "per", "què", "és", "aquest", "aquesta", "també", "hi", "dels", "pots", "puc",
-           "teu", "vols", "avui", "demà", "nens", "només", "ajudar", "activitats", "molt", "fer", "i",
-           "l", "d", "pel", "si", "et", "una"},
-    "es": {"con", "los", "para", "qué", "este", "esta", "también", "hay", "del", "puedes", "puedo",
-           "quieres", "hoy", "mañana", "niños", "solo", "sólo", "ayudar", "actividades", "muy", "hacer",
-           "y", "está", "están", "pero", "te", "tus", "tu"},
-    "en": {"the", "and", "with", "for", "is", "you", "this", "there", "are", "can", "your", "today",
-           "tomorrow", "kids", "children", "only", "help", "activities", "event", "events", "to", "of",
-           "in", "it", "what", "i'm", "here"},
-}
-
-
-def detect_language(text: str) -> str | None:
-    words = re.findall(r"[\w']+", text.lower())
-    scores = {lang: sum(word in markers for word in words) for lang, markers in MARKERS.items()}
-    best = max(scores, key=scores.get)
-    others = [score for lang, score in scores.items() if lang != best]
-    return best if scores[best] > max(others) else None
-
 
 class FakeGemini:
     def __init__(self, args):
@@ -234,6 +213,9 @@ def test_real_gemini_extracts_same_filters_in_every_language(request_, lang):
 def test_real_gemini_answers_in_the_users_language(monkeypatch, lang, kind):
     monkeypatch.setenv("APP_ENV", "development")
     message = CHAT[lang][kind]
+    # Mateix flux que POST /chat/messages: es detecta l'idioma i s'indica a Gemini.
+    language = detect_conversation_language(message)
+    assert language == lang
     client = _chat_client()
     reply = _retry(lambda: rag.answer_with_events(
         message,
@@ -241,5 +223,29 @@ def test_real_gemini_answers_in_the_users_language(monkeypatch, lang, kind):
         client=client,
         collection=FakeCollection(EVENTS),
         filter_extractor=lambda text, now: EventFilters(),  # una sola crida a Gemini per test
+        language_name=LANGUAGE_NAMES[language],
     ))
     assert detect_language(reply) == lang, reply
+
+
+# Missatge ambigu ("Girona") dins d'una conversa en castellà: la resposta ha de continuar en castellà.
+@live
+def test_real_gemini_keeps_the_conversation_language_for_ambiguous_messages(monkeypatch):
+    monkeypatch.setenv("APP_ENV", "development")
+    history = [
+        {"role": "user", "content": "¿Qué me recomiendas para hacer con los niños?"},
+        {"role": "assistant", "content": "Hay unas titelles al parque esta tarde."},
+    ]
+    language = detect_conversation_language("Girona", history)
+    assert language == "es"
+    client = _chat_client()
+    reply = _retry(lambda: rag.answer_with_events(
+        "Girona",
+        now=NOW,
+        client=client,
+        collection=FakeCollection(EVENTS),
+        filter_extractor=lambda text, now: EventFilters(),
+        history=history,
+        language_name=LANGUAGE_NAMES[language],
+    ))
+    assert detect_language(reply) == "es", reply
