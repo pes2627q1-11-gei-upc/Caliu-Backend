@@ -83,6 +83,13 @@ FUNCTION_DECLARATION = {
                 "type": "BOOLEAN",
                 "description": "true si demana explícitament activitats gratuïtes o d'entrada lliure.",
             },
+            "itinerary": {
+                "type": "BOOLEAN",
+                "description": (
+                    "true si demana un itinerari, un pla o una ruta amb diverses activitats encadenades "
+                    "(p. ex. 'fes-me un itinerari', 'una ruta per dissabte', 'què puc encadenar a la tarda')."
+                ),
+            },
         },
     },
 }
@@ -103,6 +110,7 @@ class EventFilters:
     categories: list[str] = field(default_factory=list)
     audience: str | None = None
     max_price: float | None = None  # 0 = només gratuïts
+    itinerary: bool = False  # l'usuari demana un pla de passos encadenats (#140), no un filtre
 
     def is_empty(self) -> bool:
         return (
@@ -131,6 +139,8 @@ class EventFilters:
             result["comarca"] = self.comarca
         if self.date_passed:
             result["datePassed"] = True
+        if self.itinerary:
+            result["itinerary"] = True
         return result
 
 
@@ -234,6 +244,7 @@ def normalize_filters(args: dict | None, now: datetime | None = None) -> EventFi
         categories=categories,
         audience=audience,
         max_price=_parse_price(args),
+        itinerary=args.get("itinerary") is True,
     )
 
 
@@ -256,6 +267,8 @@ def build_system_instruction(now: datetime) -> str:
         "- 'gratis', 'gratuït', 'entrada lliure' -> free=true. 'barat' sense xifra NO és un preu.\n"
         "- Categories només si el tipus d'activitat ho indica (concert -> Música, titelles -> Teatre...).\n"
         "- L'usuari pot escriure en català, castellà o anglès.\n"
+        "- itinerary=true només si demana un itinerari, pla o ruta de diverses activitats encadenades; "
+        "una recomanació simple ('què hi ha avui?') no ho és.\n"
         "- Si la frase no té cap descriptor reconeixible, crida la funció sense arguments."
     )
 

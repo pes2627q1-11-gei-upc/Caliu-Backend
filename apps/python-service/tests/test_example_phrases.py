@@ -113,6 +113,21 @@ PHRASES = [
         "esperat": EMPTY,
         "real": {},
     },
+    {
+        "frase": "fes-me un itinerari per dissabte a Girona",
+        "gemini": {"itinerary": True, "date_from": "2026-11-21", "municipality": "Girona"},
+        "esperat": {**EMPTY, "from": "2026-11-21T00:00:00+01:00", "to": "2026-11-21T23:59:59+01:00",
+                    "municipality": "Girona", "itinerary": True},
+        "real": {"date_from": "2026-11-21", "municipality": "Girona", "itinerary": True},
+    },
+    {
+        "frase": "una ruta amb nens per aquest cap de setmana",
+        "gemini": {"itinerary": True, "audience": "infantil", "date_from": "2026-11-21", "date_to": "2026-11-22"},
+        "esperat": {**EMPTY, "from": "2026-11-21T00:00:00+01:00", "to": "2026-11-22T23:59:59+01:00",
+                    "audience": "infantil", "itinerary": True},
+        "real": {"audience": {"infantil", "familiar"}, "date_from": "2026-11-21", "date_to": "2026-11-22",
+                 "itinerary": True},
+    },
 ]
 
 IDS = [p["frase"] for p in PHRASES]
@@ -156,7 +171,7 @@ live = pytest.mark.skipif(
 )
 
 # Saturació, límit del pla gratuït o temps esgotat: el test se salta en lloc de fallar.
-TRANSIENT = ("503", "UNAVAILABLE", "429", "RESOURCE_EXHAUSTED", "timed out", "Timeout")
+TRANSIENT = ("503", "UNAVAILABLE", "504", "DEADLINE_EXCEEDED", "429", "RESOURCE_EXHAUSTED", "timed out", "Timeout")
 
 
 # Pla gratuït: si Gemini demana esperar poc (límit per minut) s'espera; si són hores (límit diari), se salta.
@@ -198,6 +213,7 @@ def test_phrase_with_real_gemini(case):
     assert f.comarca == real.get("comarca")
     assert f.date_passed == real.get("date_passed", False)
     assert f.time_of_day == real.get("time_of_day")
+    assert f.itinerary == real.get("itinerary", False)
 
     if "date_from" in real:
         assert _day(f.from_) == real["date_from"]

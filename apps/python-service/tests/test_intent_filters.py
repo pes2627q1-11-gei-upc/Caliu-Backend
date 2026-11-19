@@ -113,7 +113,7 @@ def test_declaration_uses_shared_categories():
     assert props["categories"]["items"]["enum"] == EVENT_CATEGORIES
     assert set(props) == {
         "date_from", "date_to", "municipality", "comarca", "time_of_day", "categories",
-        "audience", "max_price", "free",
+        "audience", "max_price", "free", "itinerary",
     }
 
 
