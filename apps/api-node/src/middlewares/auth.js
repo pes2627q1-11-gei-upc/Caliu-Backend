@@ -27,3 +27,10 @@ export async function requireAuth(req, res, next) {
     next(err);
   }
 }
+
+export function authenticateEventReader(req, res, next) {
+  res.vary('Authorization');
+  if (req.get('Authorization') === undefined) return next();
+  res.set('Cache-Control', 'no-store');
+  return requireAuth(req, res, next);
+}

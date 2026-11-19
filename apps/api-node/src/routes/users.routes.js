@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { getMe, updateMe, getPreferences, replacePreferences } from '../controllers/users.controller.js';
+import { addFavorite } from '../controllers/favorites.controller.js';
 import { noStore, requireAuth } from '../middlewares/auth.js';
 
 const router = Router();
@@ -8,5 +9,7 @@ router.get('/me', getMe);
 router.patch('/me', updateMe);
 router.get('/me/preferences', getPreferences);
 router.put('/me/preferences', replacePreferences);
+
+router.post('/me/favorites', addFavorite);
 
 export default router;
