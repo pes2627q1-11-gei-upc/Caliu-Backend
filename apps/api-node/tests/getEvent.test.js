@@ -1,10 +1,16 @@
 import { jest } from '@jest/globals';
 import request from 'supertest';
+import jwt from 'jsonwebtoken';
+import mongoose from 'mongoose';
+import Interaction from '../src/models/Interaction.js';
+import Session from '../src/models/Session.js';
+import User from '../src/models/User.js';
 
 // Es simula el model Event perquè els tests no necessiten MongoDB.
 const findById = jest.fn();
+const find = jest.fn();
 jest.unstable_mockModule('../src/models/Event.js', () => ({
-  default: { findById, find: jest.fn(), countDocuments: jest.fn(), aggregate: jest.fn() },
+  default: { findById, find, countDocuments: jest.fn().mockResolvedValue(2), aggregate: jest.fn() },
 }));
 
 const { default: app } = await import('../src/app.js');
@@ -118,5 +124,74 @@ describe('GET /events/:id', () => {
     expect(res.status).toBe(200);
     expect(res.body.categories).toContain('Música');
     expect(findById).not.toHaveBeenCalled();
+  });
+});
+
+describe('#186 estat de preferit a la llista i a la fitxa', () => {
+  const secret = 'caliu-test-only-secret-with-at-least-32-bytes';
+  const originalSecret = process.env.JWT_SECRET;
+  const userId = '64b7f0c2a1b2c3d4e5f60721';
+  const otherEventId = '64b7f0c2a1b2c3d4e5f60722';
+  const jti = 'a'.repeat(64);
+  let token;
+  let distinct;
+
+  beforeEach(() => {
+    process.env.JWT_SECRET = secret;
+    token = jwt.sign({ jti }, secret, {
+      subject: userId, algorithm: 'HS256', issuer: 'caliu-api', audience: 'caliu-android', expiresIn: 3600,
+    });
+    jest.spyOn(User, 'findById').mockReturnValue(leanResolving({ _id: userId }));
+    jest.spyOn(Session, 'exists').mockResolvedValue({ _id: 'session' });
+    distinct = jest.spyOn(Interaction, 'distinct').mockResolvedValue([new mongoose.Types.ObjectId(ID)]);
+    findById.mockReturnValue(leanResolving(DOC));
+    find.mockReturnValue({ sort: () => ({ skip: () => ({ limit: () => leanResolving([DOC, { ...DOC, _id: otherEventId }]) }) }) });
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+    if (originalSecret === undefined) delete process.env.JWT_SECRET;
+    else process.env.JWT_SECRET = originalSecret;
+  });
+
+  it('consulta els preferits de tota la pàgina en una sola operació', async () => {
+    const res = await request(app).get('/events').auth(token, { type: 'bearer' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.items.map(({ isFavorite }) => isFavorite)).toEqual([true, false]);
+    expect(distinct).toHaveBeenCalledTimes(1);
+    expect(distinct).toHaveBeenCalledWith('eventId', {
+      userId, type: 'favorite', eventId: { $in: [ID, otherEventId] },
+    });
+    expect(res.headers['cache-control']).toBe('no-store');
+    expect(res.headers.vary).toContain('Authorization');
+  });
+
+  it('retorna un booleà també a la fitxa', async () => {
+    const favorite = await request(app).get(`/events/${ID}`).auth(token, { type: 'bearer' });
+    distinct.mockResolvedValueOnce([]);
+    const other = await request(app).get(`/events/${ID}`).auth(token, { type: 'bearer' });
+
+    expect(favorite.body.isFavorite).toBe(true);
+    expect(other.body.isFavorite).toBe(false);
+  });
+
+  it('manté públiques les dues rutes i omet el camp sense sessió', async () => {
+    const list = await request(app).get('/events');
+    const detail = await request(app).get(`/events/${ID}`);
+
+    expect(list.status).toBe(200);
+    expect(detail.status).toBe(200);
+    expect(list.body.items[0]).not.toHaveProperty('isFavorite');
+    expect(detail.body).not.toHaveProperty('isFavorite');
+    expect(detail.headers.vary).toContain('Authorization');
+    expect(distinct).not.toHaveBeenCalled();
+  });
+
+  it('rebutja un token invàlid o una sessió revocada abans de llegir preferits', async () => {
+    expect((await request(app).get('/events').auth('invalid', { type: 'bearer' })).status).toBe(401);
+    Session.exists.mockResolvedValueOnce(null);
+    expect((await request(app).get(`/events/${ID}`).auth(token, { type: 'bearer' })).status).toBe(401);
+    expect(distinct).not.toHaveBeenCalled();
   });
 });
