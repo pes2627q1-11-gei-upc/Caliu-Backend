@@ -18,6 +18,8 @@ const userSchema = new mongoose.Schema(
       },
     },
     preferences: { type: [String], default: [] },
+    // Radi d'activitat en km (#123). Sense valor si l'usuari no n'ha triat cap.
+    proximitatKm: { type: Number, min: 0.1, max: 500 },
   },
   // Els índexs es creen explícitament després de l'auditoria de dades antigues.
   { timestamps: true, autoIndex: false },

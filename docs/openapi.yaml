@@ -87,6 +87,62 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
 
+  /users/me/preferences:
+    get:
+      summary: Preferències culturals i radi d'activitat de l'usuari autenticat
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Preferences' }
+        '401':
+          description: Cal autenticació
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+    put:
+      summary: Substitueix les preferències i, opcionalment, el radi d'activitat
+      description: |
+        `preferences` substitueix la llista sencera. Han de ser categories de /events/categories
+        (no distingeix majúscules ni accents) i es treuen els duplicats.
+        `proximitatKm` és opcional: si no s'envia, es manté el valor actual; `null` l'esborra.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [preferences]
+              additionalProperties: false
+              properties:
+                preferences:
+                  type: array
+                  maxItems: 30
+                  items: { type: string, minLength: 1, maxLength: 50 }
+                  example: ["Música", "Teatre"]
+                proximitatKm: { type: number, nullable: true, minimum: 0.1, maximum: 500, example: 10 }
+      responses:
+        '200':
+          description: Preferències desades
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Preferences' }
+        '400':
+          description: Camps o valors no vàlids (p. ex. categoria desconeguda o proximitatKm fora de rang)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401':
+          description: Cal autenticació
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
   /events:
     get:
       summary: Llista d'esdeveniments (amb filtres i paginació)
@@ -259,6 +315,21 @@ components:
       type: object
       properties:
         error: { type: string }
+    Preferences:
+      type: object
+      required: [preferences, proximitatKm]
+      properties:
+        preferences:
+          type: array
+          items: { type: string }
+          example: ["Música", "Teatre"]
+        proximitatKm:
+          type: number
+          nullable: true
+          minimum: 0.1
+          maximum: 500
+          description: "Radi d'activitat en km (mateixos límits que radiusKm de GET /events). null si l'usuari no n'ha triat cap."
+          example: 10
     Event:
       type: object
       properties:
