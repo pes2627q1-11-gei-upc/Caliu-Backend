@@ -3,9 +3,10 @@ import { parseEventQuery, QueryError } from './eventQuery.js';
 const EXTERNAL_PARAMS = ['from', 'to', 'comarca', 'lat', 'lng', 'radiusKm', 'page', 'limit'];
 
 // Paràmetres de GET /ext/v1/events (#214), segons el contracte amb Xematrip: un rang de dates
-// i UNA zona (comarca, o bé un radi al voltant d'un punt), amb paginació. Qualsevol altre
-// paràmetre es rebutja. La validació de dates, números i paginació és la de parseEventQuery.
-export function parseExternalEventQuery(query = {}, now = new Date()) {
+// i UNA zona (una sola comarca, o bé un radi al voltant d'un punt), amb paginació. Qualsevol
+// altre paràmetre es rebutja. La validació de dates, números i paginació és la de parseEventQuery.
+// Fora de l'entorn de desenvolupament s'amaguen les dades de prova, com fa el xat (rag.py).
+export function parseExternalEventQuery(query = {}, now = new Date(), appEnv = process.env.APP_ENV) {
   const unknown = Object.keys(query).filter((key) => !EXTERNAL_PARAMS.includes(key));
   if (unknown.length) throw new QueryError(`Paràmetre no admès: ${unknown.join(', ')}`);
 
@@ -17,7 +18,19 @@ export function parseExternalEventQuery(query = {}, now = new Date()) {
   if (byRadius && ['lat', 'lng', 'radiusKm'].some((key) => query[key] === undefined)) {
     throw new QueryError('La zona per radi requereix "lat", "lng" i "radiusKm"');
   }
-  return parseEventQuery(query, now);
+  if (byComarca) {
+    // Una buida o diverses (Gironès,Selva o ?comarca=a&comarca=b) no compleixen el contracte.
+    const comarques = Array.isArray(query.comarca) ? query.comarca : String(query.comarca).split(',');
+    if (comarques.map((value) => String(value).trim()).filter(Boolean).length !== 1) {
+      throw new QueryError('Paràmetre "comarca" invàlid (ha de ser una sola comarca, no buida)');
+    }
+  }
+
+  const parsed = parseEventQuery(query, now);
+  if (String(appEnv ?? '').trim().toLowerCase() !== 'development') {
+    parsed.filter.source = { $ne: 'seed' };
+  }
+  return parsed;
 }
 
 // DTO dels esdeveniments per als clients externs (#213), segons el contracte amb Xematrip:
