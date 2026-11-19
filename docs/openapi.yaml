@@ -87,6 +87,62 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
 
+  /users/me/preferences:
+    get:
+      summary: Preferències culturals i radi d'activitat de l'usuari autenticat
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Preferences' }
+        '401':
+          description: Cal autenticació
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+    put:
+      summary: Substitueix les preferències i, opcionalment, el radi d'activitat
+      description: |
+        `preferences` substitueix la llista sencera. Han de ser categories de /events/categories
+        (no distingeix majúscules ni accents) i es treuen els duplicats.
+        `proximitatKm` és opcional: si no s'envia, es manté el valor actual; `null` l'esborra.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [preferences]
+              additionalProperties: false
+              properties:
+                preferences:
+                  type: array
+                  maxItems: 30
+                  items: { type: string, minLength: 1, maxLength: 50 }
+                  example: ["Música", "Teatre"]
+                proximitatKm: { type: number, nullable: true, minimum: 0.1, maximum: 500, example: 10 }
+      responses:
+        '200':
+          description: Preferències desades
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Preferences' }
+        '400':
+          description: Camps o valors no vàlids (p. ex. categoria desconeguda o proximitatKm fora de rang)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401':
+          description: Cal autenticació
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
   /events:
     get:
       summary: Llista d'esdeveniments (amb filtres i paginació)
@@ -248,6 +304,73 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
 
+  /ext/v1/events:
+    get:
+      summary: Agenda per dates i zona per a altres equips (p. ex. Xematrip)
+      description: |
+        API de només lectura per a clients externs. Cal la clau pròpia del client a la capçalera `X-API-Key`.
+        Cal indicar UNA sola zona: una `comarca`, o bé `lat` + `lng` + `radiusKm`.
+        Si és per radi, els resultats van ordenats per distància; si no, per data d'inici.
+        Només hi ha esdeveniments dels pròxims 7 dies (la ingesta diària no en guarda més).
+        Només inclou dades reals: els esdeveniments de prova (seed) només surten a l'entorn de desenvolupament.
+        Qualsevol altre paràmetre es rebutja amb 400. No inclou cap dada personal d'usuaris.
+      security:
+        - apiKeyAuth: []
+      parameters:
+        - { name: from, in: query, schema: { type: string, format: date-time }, description: "Inici del rang. Per defecte, ara.", example: "2026-12-26T00:00:00+01:00" }
+        - { name: to, in: query, schema: { type: string, format: date-time }, description: "Final del rang", example: "2026-12-28T23:59:59+01:00" }
+        - { name: comarca, in: query, schema: { type: string }, description: "Una sola comarca, no buida (no distingeix majúscules ni accents). No es pot combinar amb lat/lng/radiusKm.", example: "Gironès" }
+        - { name: lat, in: query, schema: { type: number, minimum: -90, maximum: 90 }, description: "Requereix lng i radiusKm" }
+        - { name: lng, in: query, schema: { type: number, minimum: -180, maximum: 180 }, description: "Requereix lat i radiusKm" }
+        - { name: radiusKm, in: query, schema: { type: number, minimum: 0.1, maximum: 500 }, description: "Radi en km al voltant de (lat, lng). Requereix lat i lng." }
+        - { name: page, in: query, schema: { type: integer, minimum: 1, default: 1 } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+      responses:
+        '200':
+          description: Pàgina d'esdeveniments
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/ExternalEvent' }
+                  page: { type: integer }
+                  limit: { type: integer }
+                  total: { type: integer, description: "Total d'esdeveniments que compleixen el filtre" }
+              example:
+                items:
+                  - title: Concert de Sant Esteve
+                    startDate: "2026-12-26T18:00:00.000Z"
+                    endDate: "2026-12-26T20:00:00.000Z"
+                    schedule: "19 h"
+                    location:
+                      address: "C. Major, 1"
+                      municipality: Girona
+                      comarca: Gironès
+                      coordinates: [2.82, 41.98]
+                    tags: [música, nadal]
+                    url: "https://agenda.cultura.gencat.cat/concert"
+                page: 1
+                limit: 20
+                total: 1
+        '400':
+          description: Paràmetre no vàlid o no admès, sense zona, amb dues zones o amb una comarca buida o múltiple
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401':
+          description: Falta la clau X-API-Key o no és vàlida
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '503':
+          description: API externa no disponible (configuració de claus incorrecta al servidor)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
   /users/me/favorites/{eventId}:
     delete:
       summary: Elimina un esdeveniment dels preferits de l'usuari autenticat
@@ -288,11 +411,31 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
+    apiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: Clau pròpia de cada client extern (altres equips de PES). La facilita l'equip de Caliu.
   schemas:
     Error:
       type: object
       properties:
         error: { type: string }
+    Preferences:
+      type: object
+      required: [preferences, proximitatKm]
+      properties:
+        preferences:
+          type: array
+          items: { type: string }
+          example: ["Música", "Teatre"]
+        proximitatKm:
+          type: number
+          nullable: true
+          minimum: 0.1
+          maximum: 500
+          description: "Radi d'activitat en km (mateixos límits que radiusKm de GET /events). null si l'usuari no n'ha triat cap."
+          example: 10
     Event:
       type: object
       properties:
@@ -330,3 +473,29 @@ components:
           type: boolean
           description: Indica si l'usuari autenticat ha desat l'esdeveniment. Només es retorna a GET /events i GET /events/{id} amb sessió vàlida.
         distanceMeters: { type: integer, description: "Només present si s'han enviat lat i lng" }
+    ExternalEvent:
+      type: object
+      description: "Esdeveniment per a clients externs (contracte amb Xematrip). Tots els camps hi són sempre."
+      required: [title, startDate, endDate, schedule, location, tags, url]
+      properties:
+        title: { type: string, example: "Concert de Sant Esteve" }
+        startDate: { type: string, format: date-time }
+        endDate: { type: string, format: date-time, nullable: true }
+        schedule: { type: string, description: "Horari en text lliure; buit si es desconeix", example: "19 h" }
+        location:
+          type: object
+          required: [address, municipality, comarca, coordinates]
+          properties:
+            address: { type: string, example: "C. Major, 1" }
+            municipality: { type: string, example: "Girona" }
+            comarca: { type: string, example: "Gironès" }
+            coordinates:
+              type: array
+              nullable: true
+              description: "[longitud, latitud] (GeoJSON). null si l'esdeveniment no té coordenades."
+              items: { type: number }
+              minItems: 2
+              maxItems: 2
+              example: [2.82, 41.98]
+        tags: { type: array, items: { type: string }, example: ["música", "nadal"] }
+        url: { type: string, description: "Enllaç a la pàgina oficial; buit si no n'hi ha" }

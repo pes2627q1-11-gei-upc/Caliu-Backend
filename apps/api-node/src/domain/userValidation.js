@@ -57,7 +57,7 @@ const categoryKey = (value) => value.trim().normalize('NFC').toLocaleLowerCase('
 const categories = new Map(EVENT_CATEGORIES.map((value) => [categoryKey(value), value]));
 
 export function validatePreferences(body) {
-  validateFields(body, ['preferences']);
+  validateFields(body, ['preferences', 'proximitatKm']);
   if (!Array.isArray(body.preferences) || body.preferences.length > 30) {
     throw invalid('preferences ha de ser una llista de com a màxim 30 elements');
   }
@@ -77,4 +77,13 @@ export function validatePreferences(body) {
     }
     return result;
   }, []);
+}
+
+// Radi d'activitat (#123): mateixos límits que radiusKm de GET /events. null l'esborra.
+export function validateProximitatKm(value) {
+  if (value === null) return null;
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0.1 || value > 500) {
+    throw invalid('proximitatKm ha de ser un número entre 0.1 i 500, o null');
+  }
+  return value;
 }

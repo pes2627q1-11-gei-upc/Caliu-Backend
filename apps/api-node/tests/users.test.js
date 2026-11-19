@@ -94,7 +94,7 @@ describe('#34 perfil propi', () => {
     expect(res.body).toEqual({ error: 'El username ja està ocupat' });
   });
 
-  it.each(['email', 'password', 'passwordHash', 'role', 'tokenVersion', '_id', 'id', 'userId', 'preferences', '__v', '$set'])('rebutja mass assignment de %s', async (key) => {
+  it.each(['email', 'password', 'passwordHash', 'role', 'tokenVersion', '_id', 'id', 'userId', 'preferences', 'proximitatKm', '__v', '$set'])('rebutja mass assignment de %s', async (key) => {
     const before = clone(users);
     const res = await auth(request(app).patch('/users/me').send({ username: 'correcte', [key]: OTHER_ID }));
     expect(res.status).toBe(400);
@@ -118,14 +118,14 @@ describe('#34 perfil propi', () => {
 
 describe('#37 preferències', () => {
   it('consulta, substitueix, normalitza, deduplica i elimina les preferències pròpies', async () => {
-    expect((await auth(request(app).get('/users/me/preferences'))).body).toEqual({ preferences: [] });
+    expect((await auth(request(app).get('/users/me/preferences'))).body).toEqual({ preferences: [], proximitatKm: null });
     const res = await auth(request(app).put('/users/me/preferences').send({ preferences: [' Música ', 'música', 'Teatre', 'Mu\u0301sica'] }));
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ preferences: ['Música', 'Teatre'] });
+    expect(res.body).toEqual({ preferences: ['Música', 'Teatre'], proximitatKm: null });
     expect((await auth(request(app).get('/users/me/preferences'))).body).toEqual(res.body);
-    expect((await auth(request(app).put('/users/me/preferences').send({ preferences: ['Arts'] }))).body).toEqual({ preferences: ['Arts'] });
-    expect((await auth(request(app).put('/users/me/preferences').send({ preferences: [] }))).body).toEqual({ preferences: [] });
-    expect((await auth(request(app).get('/users/me/preferences'))).body).toEqual({ preferences: [] });
+    expect((await auth(request(app).put('/users/me/preferences').send({ preferences: ['Arts'] }))).body).toEqual({ preferences: ['Arts'], proximitatKm: null });
+    expect((await auth(request(app).put('/users/me/preferences').send({ preferences: [] }))).body).toEqual({ preferences: [], proximitatKm: null });
+    expect((await auth(request(app).get('/users/me/preferences'))).body).toEqual({ preferences: [], proximitatKm: null });
     expect(users[OTHER_ID].preferences).toEqual([]);
     expect(User.findOneAndUpdate).toHaveBeenLastCalledWith(
       { _id: ID }, { $set: { preferences: [] } }, { new: true, runValidators: true },
@@ -142,8 +142,43 @@ describe('#37 preferències', () => {
   it.each([{}, [], { preferences: null }, { preferences: 'Música' }, { preferences: [42] },
     { preferences: [{}] }, { preferences: ['Cinema'] }, { preferences: ['musica'] }, { preferences: [''] }, { preferences: ['   '] },
     { preferences: ['a'.repeat(51)] }, { preferences: ['a\nb'] }, { preferences: ['a\u200bb'] },
-    { preferences: Array(31).fill('Música') }, { preferences: [], userId: OTHER_ID }])('valida la llista %#', async (body) => {
+    { preferences: Array(31).fill('Música') }, { preferences: [], userId: OTHER_ID }, { proximitatKm: 10 }])('valida la llista %#', async (body) => {
     const res = await auth(request(app).put('/users/me/preferences').send(body));
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ error: expect.any(String) });
+    expect(User.findOneAndUpdate).not.toHaveBeenCalled();
+  });
+});
+
+describe('#123 proximitatKm', () => {
+  const put = (body) => auth(request(app).put('/users/me/preferences').send(body));
+
+  it('desa, consulta i esborra el radi d\'activitat propi', async () => {
+    const res = await put({ preferences: ['Teatre'], proximitatKm: 12.5 });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ preferences: ['Teatre'], proximitatKm: 12.5 });
+    expect((await auth(request(app).get('/users/me/preferences'))).body).toEqual(res.body);
+    expect((await put({ preferences: ['Teatre'], proximitatKm: null })).body).toEqual({ preferences: ['Teatre'], proximitatKm: null });
+    expect(users[OTHER_ID].proximitatKm).toBeUndefined();
+  });
+
+  it('manté el radi si només es canvien les categories', async () => {
+    await put({ preferences: [], proximitatKm: 30 });
+    const res = await put({ preferences: ['Arts'] });
+    expect(res.body).toEqual({ preferences: ['Arts'], proximitatKm: 30 });
+    expect(User.findOneAndUpdate).toHaveBeenLastCalledWith(
+      { _id: ID }, { $set: { preferences: ['Arts'] } }, { new: true, runValidators: true },
+    );
+  });
+
+  it.each([0.1, 500])('accepta el límit %p', async (proximitatKm) => {
+    const res = await put({ preferences: [], proximitatKm });
+    expect(res.status).toBe(200);
+    expect(res.body.proximitatKm).toBe(proximitatKm);
+  });
+
+  it.each([-1, 0, 0.09, 500.1, '5', true, {}, []])('rebutja proximitatKm %p', async (proximitatKm) => {
+    const res = await put({ preferences: [], proximitatKm });
     expect(res.status).toBe(400);
     expect(res.body).toEqual({ error: expect.any(String) });
     expect(User.findOneAndUpdate).not.toHaveBeenCalled();

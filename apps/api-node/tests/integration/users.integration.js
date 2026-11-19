@@ -204,15 +204,15 @@ it('desa, substitueix i buida preferències sense afectar altres usuaris', async
   await register('altra@example.cat');
   const { body: { token } } = await login('persona@example.cat');
   const set = (preferences) => auth(request(app).put('/users/me/preferences').send({ preferences }), token);
-  expect((await set([' Música ', 'música', 'Teatre'])).body).toEqual({ preferences: ['Música', 'Teatre'] });
+  expect((await set([' Música ', 'música', 'Teatre'])).body).toEqual({ preferences: ['Música', 'Teatre'], proximitatKm: null });
   expect((await User.findOne({ email: 'persona@example.cat' })).preferences).toEqual(['Música', 'Teatre']);
   expect((await set(['Cinema'])).status).toBe(400);
   expect((await User.findOne({ email: 'persona@example.cat' })).preferences).toEqual(['Música', 'Teatre']);
-  expect((await set(['Arts'])).body).toEqual({ preferences: ['Arts'] });
+  expect((await set(['Arts'])).body).toEqual({ preferences: ['Arts'], proximitatKm: null });
   expect((await set([])).status).toBe(200);
   expect((await User.findOne({ email: 'persona@example.cat' })).preferences).toEqual([]);
   expect((await User.findOne({ email: 'altra@example.cat' })).preferences).toEqual([]);
-  expect((await auth(request(app).get('/users/me/preferences'), token)).body).toEqual({ preferences: [] });
+  expect((await auth(request(app).get('/users/me/preferences'), token)).body).toEqual({ preferences: [], proximitatKm: null });
 });
 
 it('logout invalida només A, conserva B i un altre usuari i admet un nou login', async () => {
