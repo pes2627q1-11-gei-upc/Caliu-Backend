@@ -45,6 +45,32 @@ def test_detects_language(text, expected):
     assert detect_language(text) == expected
 
 
+# Topònims catalans amb lletres pròpies del català (ç, à, è, ò, l·l): no han de decidir l'idioma de la frase.
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        ("¿Hay jazz en Lliçà d'Amunt?", "es"),
+        ("Any jazz in Lliçà d'Amunt?", "en"),
+        ("hay jazz en lliçà d'amunt?", "es"),
+        ("any jazz in lliçà d'amunt?", "en"),
+        ("¿Qué hay en Sant Cugat del Vallès este sábado?", "es"),
+        ("What's on in Vilafranca del Penedès this weekend?", "en"),
+        ("Conciertos para niños en Sant Feliu de Guíxols", "es"),
+        ("Free activities for kids in Cerdanyola del Vallès", "en"),
+        ("Hi ha jazz a Lliçà d'Amunt?", "ca"),
+        ("Concerts a Sant Feliu de Guíxols aquest cap de setmana", "ca"),
+    ],
+)
+def test_catalan_place_names_do_not_decide_the_language(text, expected):
+    assert detect_language(text) == expected
+
+
+def test_only_a_place_name_falls_back_to_the_conversation():
+    assert detect_language("Jazz a Lliçà d'Amunt") is None
+    history = [{"role": "user", "content": "What can I do with the kids?"}]
+    assert detect_conversation_language("Jazz a Lliçà d'Amunt", history) == "en"
+
+
 @pytest.mark.parametrize("text", ["Girona", "hola", "ok", "21/11", "", "   "])
 def test_ambiguous_text_has_no_language(text):
     assert detect_language(text) is None
@@ -128,6 +154,8 @@ def test_answer_with_events_sends_language_to_gemini(monkeypatch):
         ("What can I do with the kids?", [], "en"),
         ("què hi ha per als nens?", [], "ca"),
         ("Girona", [{"role": "user", "content": "What can I do with the kids?"}], "en"),
+        ("¿Hay jazz en Lliçà d'Amunt?", [], "es"),
+        ("Any jazz in Lliçà d'Amunt?", [], "en"),
     ],
 )
 def test_messages_endpoint_answers_in_detected_language(monkeypatch, message, history, expected):

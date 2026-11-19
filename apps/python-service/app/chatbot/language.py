@@ -1,5 +1,6 @@
 # Detecció de l'idioma del missatge (català, castellà o anglès) perquè el xatbot respongui en el mateix.
-# És determinista i sense dependències: lletres pròpies de cada idioma + paraules freqüents.
+# És determinista i sense dependències: paraules freqüents de cada idioma i, per desempatar, lletres pròpies.
+# Els noms propis no compten: "¿Hay jazz en Lliçà d'Amunt?" és castellà encara que el poble porti "ç" i "à".
 
 import re
 
@@ -8,13 +9,15 @@ DEFAULT_LANGUAGE = "ca"
 LANGUAGE_NAMES = {"ca": "català", "es": "castellà", "en": "anglès"}
 
 # Lletres que només fa servir un dels tres idiomes (el català no té "á" i el castellà no té "à").
+# Només desempaten: un topònim en minúscules ("lliçà") no ha de pesar més que la resta de la frase.
 LETTERS = {
     "ca": ("à", "è", "ò", "ç", "ï", "l·l"),
-    "es": ("á", "ñ", "¿", "¡"),
+    "es": ("á", "ñ"),
 }
-LETTER_WEIGHT = 2
+# Signes que només fa servir el castellà i que no apareixen en topònims: compten com una paraula.
+SPANISH_MARKS = ("¿", "¡")
 
-# Paraules freqüents i exclusives de cada idioma (les compartides, com "de", "el", "i" o "hola", no compten).
+# Paraules freqüents i exclusives de cada idioma (les compartides, com "de", "el", "del" o "hola", no compten).
 WORDS = {
     "ca": {
         "amb", "els", "per", "què", "és", "aquest", "aquesta", "aquests", "també", "hi", "dels", "pots", "puc",
@@ -24,7 +27,7 @@ WORDS = {
         "m'agradaria", "fill", "fills",
     },
     "es": {
-        "con", "los", "para", "qué", "este", "esta", "estos", "también", "hay", "del", "puedes", "puedo",
+        "con", "los", "para", "qué", "este", "esta", "estos", "también", "hay", "puedes", "puedo",
         "quiero", "quieres", "hoy", "mañana", "niños", "niñas", "peques", "solo", "actividades", "muy",
         "hacer", "y", "pero", "fin", "semana", "tarde", "noche", "gracias", "buenos", "buenas", "días",
         "dónde", "cuál", "cuáles", "algún", "nada", "gratis", "familia", "recomiendas", "gustaría", "hijos",
@@ -39,12 +42,34 @@ WORDS = {
 }
 
 
+TOKEN = re.compile(r"[\w'·]+")
+SENTENCE_END = ".!?¿¡:\n"
+
+
+# Paraules del text sense els noms propis: les que comencen en majúscula i no obren la frase.
+def _words(text: str) -> list[str]:
+    words = []
+    for match in TOKEN.finditer(text):
+        token = match.group()
+        before = text[: match.start()].rstrip(" \t\"'«(")
+        starts_sentence = not before or before[-1] in SENTENCE_END
+        if token[0].isupper() and not starts_sentence:
+            continue
+        words.append(token.lower())
+    return words
+
+
+# Per idioma: (paraules pròpies + signes ¿ ¡, lletres pròpies). Es comparen en aquest ordre.
 def _scores(text: str) -> dict:
-    lowered = text.lower()
-    words = re.findall(r"[\w'·]+", lowered)
-    scores = {lang: sum(word in WORDS[lang] for word in words) for lang in LANGUAGES}
-    for lang, letters in LETTERS.items():
-        scores[lang] += LETTER_WEIGHT * sum(lowered.count(letter) for letter in letters)
+    words = _words(text)
+    joined = " ".join(words)
+    scores = {}
+    for lang in LANGUAGES:
+        word_score = sum(word in WORDS[lang] for word in words)
+        if lang == "es":
+            word_score += sum(text.count(mark) for mark in SPANISH_MARKS)
+        letter_score = sum(joined.count(letter) for letter in LETTERS.get(lang, ()))
+        scores[lang] = (word_score, letter_score)
     return scores
 
 
@@ -52,7 +77,7 @@ def _scores(text: str) -> dict:
 def detect_language(text: str) -> str | None:
     scores = _scores(text or "")
     best = max(LANGUAGES, key=lambda lang: scores[lang])
-    if scores[best] == 0 or list(scores.values()).count(scores[best]) > 1:
+    if scores[best] == (0, 0) or list(scores.values()).count(scores[best]) > 1:
         return None
     return best
 
