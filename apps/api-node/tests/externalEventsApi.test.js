@@ -1,4 +1,5 @@
 import { jest } from '@jest/globals';
+import express from 'express';
 import request from 'supertest';
 import { parseExternalEventQuery } from '../src/domain/externalEvent.js';
 
@@ -16,6 +17,8 @@ const KEY = 'clau-de-test-xematrip-amb-32-caracters';
 const originalKeys = process.env.EXTERNAL_API_KEYS;
 process.env.EXTERNAL_API_KEYS = `xematrip:${KEY}`;
 const { default: app } = await import('../src/app.js');
+// Després del mock: si s'importés abans, es carregaria el model Event real.
+const { externalApiAuth } = await import('../src/routes/external.routes.js');
 
 afterAll(() => {
   if (originalKeys === undefined) delete process.env.EXTERNAL_API_KEYS;
@@ -89,6 +92,7 @@ describe('#214 GET /ext/v1/events', () => {
     expect(res.body).toEqual({ items: [EXPECTED], page: 1, limit: 20, total: 1 });
     const filter = find.mock.calls[0][0];
     expect(filter.comarca.$in[0].test('Gironès')).toBe(true);
+    expect(filter.source).toEqual({ $ne: 'seed' });
     expect(aggregate).not.toHaveBeenCalled();
   });
 
@@ -131,6 +135,10 @@ describe('#214 GET /ext/v1/events', () => {
     { comarca: 'Gironès', from: 'no-és-una-data' },
     { lat: 41.38, lng: 2.17, radiusKm: 501 },
     { comarca: 'Gironès', limit: 0 },
+    { comarca: '' },
+    { comarca: ' , ' },
+    { comarca: 'Gironès,Selva' },
+    { comarca: ['Gironès', 'Selva'] },
   ])('rebutja amb 400 la consulta %p', async (query) => {
     const res = await get(query);
     expect(res.status).toBe(400);
@@ -141,5 +149,29 @@ describe('#214 GET /ext/v1/events', () => {
 
   it('sense paràmetres demana una zona', () => {
     expect(() => parseExternalEventQuery()).toThrow(/zona/);
+  });
+
+  it('només mostra les dades de prova (seed) a l\'entorn de desenvolupament', () => {
+    const query = { comarca: 'Gironès' };
+    expect(parseExternalEventQuery(query, new Date(), ' Development ').filter.source).toBeUndefined();
+    expect(parseExternalEventQuery(query, new Date(), 'production').filter.source).toEqual({ $ne: 'seed' });
+    expect(parseExternalEventQuery(query, new Date(), undefined).filter.source).toEqual({ $ne: 'seed' });
+  });
+
+  it('amb EXTERNAL_API_KEYS mal configurada només desactiva l\'API externa (503)', async () => {
+    const logged = jest.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const external = express();
+      external.use(externalApiAuth('format-incorrecte'));
+      external.get('/events', (_req, res) => res.json({ ok: true }));
+
+      const res = await request(external).get('/events').set('X-API-Key', KEY);
+      expect(res.status).toBe(503);
+      expect(res.body).toEqual({ error: 'API externa no disponible' });
+      expect(logged).toHaveBeenCalledWith(expect.stringContaining('EXTERNAL_API_KEYS'));
+      expect(logged.mock.calls.flat().join(' ')).not.toContain('format-incorrecte');
+    } finally {
+      logged.mockRestore();
+    }
   });
 });
