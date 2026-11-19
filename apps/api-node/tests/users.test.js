@@ -250,3 +250,44 @@ describe('#185 alta de preferits', () => {
     expect((await auth(request(app).post(path)).send({ eventId })).status).toBe(500);
   });
 });
+
+describe('#166 baixa de preferits', () => {
+  const eventId = '64b7f0c2a1b2c3d4e5f60720';
+  const path = `/users/me/favorites/${eventId}`;
+
+  beforeEach(() => {
+    jest.spyOn(Interaction, 'deleteOne').mockResolvedValue({ deletedCount: 1 });
+  });
+
+  it('exigeix una sessió vàlida abans d’eliminar', async () => {
+    expect((await request(app).delete(path)).status).toBe(401);
+    expect((await auth(request(app).delete(path), 'invalid')).status).toBe(401);
+    expect(Interaction.deleteOne).not.toHaveBeenCalled();
+  });
+
+  it('rebutja un identificador invàlid', async () => {
+    expect((await auth(request(app).delete('/users/me/favorites/no-valid'))).status).toBe(400);
+    expect(Interaction.deleteOne).not.toHaveBeenCalled();
+  });
+
+  it('elimina només el preferit de l’usuari autenticat i retorna 204 també en repetir', async () => {
+    Interaction.deleteOne.mockResolvedValueOnce({ deletedCount: 1 })
+      .mockResolvedValueOnce({ deletedCount: 0 });
+
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const res = await auth(request(app).delete(path).send({ userId: OTHER_ID }));
+      expect(res.status).toBe(204);
+      expect(res.text).toBe('');
+    }
+
+    expect(Interaction.deleteOne.mock.calls).toEqual([
+      [{ userId: ID, type: 'favorite', eventId }],
+      [{ userId: ID, type: 'favorite', eventId }],
+    ]);
+  });
+
+  it('propaga les fallades de persistència', async () => {
+    Interaction.deleteOne.mockRejectedValueOnce(new Error('Mongo unavailable'));
+    expect((await auth(request(app).delete(path))).status).toBe(500);
+  });
+});
