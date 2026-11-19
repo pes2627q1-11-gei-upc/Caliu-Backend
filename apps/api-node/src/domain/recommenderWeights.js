@@ -11,6 +11,12 @@ export const DEFAULT_WEIGHTS = Object.freeze({
 
 export const WEIGHT_KEYS = Object.keys(DEFAULT_WEIGHTS);
 
+// Cert si almenys un pes és més gran que 0: amb tots a 0 el recomanador no ordenaria res.
+// La fan servir validateWeights i loadRecommenderWeights perquè apliquin la mateixa regla.
+export function hasPositiveWeight(weights) {
+  return WEIGHT_KEYS.some((key) => weights[key] > 0);
+}
+
 // Valida un canvi de pesos (total o parcial) i retorna els pesos resultants.
 // Rebutja claus desconegudes, valors no numèrics, negatius o infinits, i que tots quedin a 0.
 export function validateWeights(input, current = DEFAULT_WEIGHTS) {
@@ -25,7 +31,7 @@ export function validateWeights(input, current = DEFAULT_WEIGHTS) {
     }
   }
   const weights = { ...current, ...input };
-  if (WEIGHT_KEYS.every((key) => weights[key] === 0)) {
+  if (!hasPositiveWeight(weights)) {
     throw httpError(400, 'Almenys un pes ha de ser més gran que 0');
   }
   return weights;

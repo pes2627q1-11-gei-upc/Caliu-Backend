@@ -46,4 +46,9 @@ describe('#126 pesos del recomanador', () => {
     stored({ _id: 'default', weights: { proximity: 5, favoriteTags: -2, preferences: '9', popularity: 7 } });
     await expect(loadRecommenderWeights()).resolves.toEqual({ ...DEFAULT_WEIGHTS, proximity: 5 });
   });
+
+  it('si els pesos desats són tots 0 usa els per defecte', async () => {
+    stored({ _id: 'default', weights: { favoriteCategories: 0, favoriteTags: 0, preferences: 0, proximity: 0 } });
+    await expect(loadRecommenderWeights()).resolves.toEqual(DEFAULT_WEIGHTS);
+  });
 });

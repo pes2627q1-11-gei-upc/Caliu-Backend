@@ -1,5 +1,5 @@
 import mongoose from 'mongoose';
-import { DEFAULT_WEIGHTS, WEIGHT_KEYS } from '../domain/recommenderWeights.js';
+import { DEFAULT_WEIGHTS, WEIGHT_KEYS, hasPositiveWeight } from '../domain/recommenderWeights.js';
 
 // Configuració del recomanador (#126): un sol document amb els pesos, perquè es puguin
 // ajustar sense modificar el codi ni redesplegar (HU #10).
@@ -28,7 +28,9 @@ export async function loadRecommenderWeights() {
   const config = await RecommenderConfig.findById(RECOMMENDER_CONFIG_ID).lean();
   const stored = Object.entries(config?.weights ?? {}).filter(([key, value]) =>
     WEIGHT_KEYS.includes(key) && typeof value === 'number' && Number.isFinite(value) && value >= 0);
-  return { ...DEFAULT_WEIGHTS, ...Object.fromEntries(stored) };
+  const weights = { ...DEFAULT_WEIGHTS, ...Object.fromEntries(stored) };
+  // Mateixa regla que validateWeights: amb tots els pesos a 0 es fan servir els per defecte.
+  return hasPositiveWeight(weights) ? weights : { ...DEFAULT_WEIGHTS };
 }
 
 export default RecommenderConfig;
