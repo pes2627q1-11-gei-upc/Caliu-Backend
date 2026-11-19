@@ -14,4 +14,4 @@ const interactionSchema = new Schema(
 // Un usuari pot guardar un esdeveniment i haver-hi assistit, una vegada per tipus.
 interactionSchema.index({ userId: 1, type: 1, eventId: 1 }, { unique: true });
 
-export default mongoose.model('Interaction', interactionSchema);
+export default mongoose.model('Interaction', interactionSchema, 'interactions');

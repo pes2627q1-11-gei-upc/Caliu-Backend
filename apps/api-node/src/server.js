@@ -1,6 +1,7 @@
 import app from './app.js';
 import { connectDB } from './config/db.js';
 import { getAuthConfig } from './config/auth.js';
+import Interaction from './models/Interaction.js';
 import Session from './models/Session.js';
 import SessioXatbot from './models/SessioXatbot.js';
 import MissatgeXatbot from './models/MissatgeXatbot.js';
@@ -12,6 +13,7 @@ async function start() {
   getAuthConfig();
   await connectDB();
   await initializeUserIndexes();
+  await Interaction.createIndexes();
   await Session.init();
   await SessioXatbot.init();
   await MissatgeXatbot.init();

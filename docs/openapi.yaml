@@ -87,12 +87,73 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
 
+  /users/me/preferences:
+    get:
+      summary: Preferències culturals i radi d'activitat de l'usuari autenticat
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Preferences' }
+        '401':
+          description: Cal autenticació
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+    put:
+      summary: Substitueix les preferències i, opcionalment, el radi d'activitat
+      description: |
+        `preferences` substitueix la llista sencera. Han de ser categories de /events/categories
+        (no distingeix majúscules ni accents) i es treuen els duplicats.
+        `proximitatKm` és opcional: si no s'envia, es manté el valor actual; `null` l'esborra.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [preferences]
+              additionalProperties: false
+              properties:
+                preferences:
+                  type: array
+                  maxItems: 30
+                  items: { type: string, minLength: 1, maxLength: 50 }
+                  example: ["Música", "Teatre"]
+                proximitatKm: { type: number, nullable: true, minimum: 0.1, maximum: 500, example: 10 }
+      responses:
+        '200':
+          description: Preferències desades
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Preferences' }
+        '400':
+          description: Camps o valors no vàlids (p. ex. categoria desconeguda o proximitatKm fora de rang)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401':
+          description: Cal autenticació
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
   /events:
     get:
       summary: Llista d'esdeveniments (amb filtres i paginació)
       description: |
         Per defecte retorna els esdeveniments que encara no han acabat, ordenats per data d'inici.
         Si s'envien lat i lng, s'ordenen per distància i cada resultat inclou "distanceMeters".
+        Amb una sessió vàlida, cada resultat inclou isFavorite per a l'usuari autenticat.
+        Si no s'envia Authorization, la llista és pública i omet el camp.
+      security:
+        - bearerAuth: []
+        - {}
       parameters:
         - { name: q, in: query, schema: { type: string }, description: "Text lliure: títol, lloc, municipi o etiqueta" }
         - { name: category, in: query, schema: { type: string }, description: "Una o més categories separades per coma (vegeu /events/categories)", example: "Música,Teatre" }
@@ -122,6 +183,11 @@ paths:
                   total: { type: integer, description: "Total d'esdeveniments que compleixen el filtre" }
         '400':
           description: Paràmetre invàlid
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401':
+          description: Credencial invàlida o sessió revocada
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -169,6 +235,12 @@ paths:
   /events/{id}:
     get:
       summary: Detall d'un esdeveniment
+      description: |
+        Amb una sessió vàlida, inclou isFavorite per a l'usuari autenticat.
+        Si no s'envia Authorization, la fitxa és pública i omet el camp.
+      security:
+        - bearerAuth: []
+        - {}
       parameters:
         - { name: id, in: path, required: true, schema: { type: string } }
       responses:
@@ -179,6 +251,55 @@ paths:
               schema: { $ref: '#/components/schemas/Event' }
         '404':
           description: No trobat
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401':
+          description: Credencial invàlida o sessió revocada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /users/me/favorites:
+    post:
+      summary: Desa un esdeveniment als preferits de l'usuari autenticat
+      description: |
+        L'operació és idempotent. Repetir-la amb el mateix esdeveniment
+        retorna 204 i conserva el preferit existent.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [eventId]
+              properties:
+                eventId:
+                  type: string
+                  pattern: '^[0-9A-Fa-f]{24}$'
+                  example: "6710f1c2a1b2c3d4e5f60718"
+      responses:
+        '204':
+          description: Esdeveniment desat o ja present als preferits
+        '400':
+          description: Cos de la petició o identificador d'esdeveniment invàlid
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401':
+          description: Credencial absent, invàlida o sessió revocada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '404':
+          description: Esdeveniment no trobat
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '500':
+          description: Error intern del servidor
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -194,6 +315,21 @@ components:
       type: object
       properties:
         error: { type: string }
+    Preferences:
+      type: object
+      required: [preferences, proximitatKm]
+      properties:
+        preferences:
+          type: array
+          items: { type: string }
+          example: ["Música", "Teatre"]
+        proximitatKm:
+          type: number
+          nullable: true
+          minimum: 0.1
+          maximum: 500
+          description: "Radi d'activitat en km (mateixos límits que radiusKm de GET /events). null si l'usuari no n'ha triat cap."
+          example: 10
     Event:
       type: object
       properties:
@@ -227,4 +363,7 @@ components:
         email: { type: string }
         phone: { type: string }
         source: { type: string, description: "ingest = dades reals, seed = dades de prova" }
+        isFavorite:
+          type: boolean
+          description: Indica si l'usuari autenticat ha desat l'esdeveniment. S'omet en respostes anònimes.
         distanceMeters: { type: integer, description: "Només present si s'han enviat lat i lng" }

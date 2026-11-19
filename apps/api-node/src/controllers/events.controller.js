@@ -1,14 +1,26 @@
 import mongoose from 'mongoose';
 import Event from '../models/Event.js';
+import Interaction from '../models/Interaction.js';
 import { EVENT_CATEGORIES } from '../domain/eventCategories.js';
 import { parseEventQuery, parseNearbyQuery, parseSearchQuery } from '../domain/eventQuery.js';
 
 // Document de Mongo (lean) -> JSON de l'API: _id passa a "id" i s'amaguen camps interns.
-function toApi(doc) {
-  const { _id, __v, createdAt, updatedAt, ...rest } = doc;
+function toApi(doc, favoriteIds = null) {
+  const { _id, __v, createdAt, updatedAt, isFavorite: _isFavorite, ...rest } = doc;
   const out = { id: String(_id), ...rest };
   if (typeof out.distanceMeters === 'number') out.distanceMeters = Math.round(out.distanceMeters);
+  if (favoriteIds) out.isFavorite = favoriteIds.has(out.id);
   return out;
+}
+
+async function favoriteIdsFor(user, items) {
+  if (!user || items.length === 0) return null;
+  const ids = await Interaction.distinct('eventId', {
+    userId: user._id,
+    type: 'favorite',
+    eventId: { $in: items.map(({ _id }) => _id) },
+  });
+  return new Set(ids.map(String));
 }
 
 // Consulta comuna de GET /events i GET /events/search: filtre + (opcionalment) proximitat + paginació.
@@ -42,7 +54,8 @@ export async function listEvents(req, res, next) {
   try {
     const parsed = parseEventQuery(req.query);
     const { items, total } = await findEvents(parsed);
-    res.json({ items: items.map(toApi), page: parsed.page, limit: parsed.limit, total });
+    const favoriteIds = await favoriteIdsFor(req.user, items);
+    res.json({ items: items.map((doc) => toApi(doc, favoriteIds)), page: parsed.page, limit: parsed.limit, total });
   } catch (err) {
     next(err);
   }
@@ -53,7 +66,7 @@ export async function searchEvents(req, res, next) {
   try {
     const parsed = parseSearchQuery(req.query);
     const { items, total } = await findEvents(parsed);
-    res.json({ items: items.map(toApi), page: parsed.page, limit: parsed.limit, total });
+    res.json({ items: items.map((doc) => toApi(doc)), page: parsed.page, limit: parsed.limit, total });
   } catch (err) {
     next(err);
   }
@@ -64,7 +77,7 @@ export async function nearbyEvents(req, res, next) {
   try {
     const parsed = parseNearbyQuery(req.query);
     const { items, total } = await findEvents(parsed);
-    res.json({ items: items.map(toApi), page: parsed.page, limit: parsed.limit, total });
+    res.json({ items: items.map((doc) => toApi(doc)), page: parsed.page, limit: parsed.limit, total });
   } catch (err) {
     next(err);
   }
@@ -75,7 +88,7 @@ export async function getEvent(req, res, next) {
     const { id } = req.params;
     const doc = mongoose.isValidObjectId(id) ? await Event.findById(id).lean() : null;
     if (!doc) return res.status(404).json({ error: 'Esdeveniment no trobat' });
-    res.json(toApi(doc));
+    res.json(toApi(doc, await favoriteIdsFor(req.user, [doc])));
   } catch (err) {
     next(err);
   }
