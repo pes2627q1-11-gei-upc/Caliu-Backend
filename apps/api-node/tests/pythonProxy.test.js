@@ -156,18 +156,35 @@ describe('proxy Node → Python', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('retorna 502 si el servei Python no respon o excedeix el temps límit', async () => {
+  it('retorna 503 si el servei Python no respon i 504 si excedeix el temps límit (#143)', async () => {
     const fetchMock = jest.spyOn(global, 'fetch').mockRejectedValue(new Error('connection refused'));
 
     await expect(proxyToPython({ path: '/chat/internal', token: token() })).rejects.toMatchObject({
-      status: 502,
+      status: 503,
       message: 'El servei de xatbot no està disponible',
+      errorCode: 'CHATBOT_UNAVAILABLE',
     });
 
     fetchMock.mockRejectedValue(new DOMException('Timed out', 'TimeoutError'));
     await expect(proxyToPython({ path: '/chat/internal', token: token() })).rejects.toMatchObject({
-      status: 502,
-      message: 'El servei de xatbot no està disponible',
+      status: 504,
+      message: 'El servei de xatbot ha tardat massa a respondre',
+      errorCode: 'CHATBOT_TIMEOUT',
+    });
+  });
+
+  it.each([
+    ['CHATBOT_UNAVAILABLE', 'El servei de xatbot no està disponible'],
+    ['EVENTS_UNAVAILABLE', 'El servei d\'esdeveniments no està disponible'],
+  ])('passa el codi %s dels 503 de Python amb un missatge propi', async (code, message) => {
+    jest.spyOn(global, 'fetch').mockResolvedValue({
+      ok: false,
+      status: 503,
+      text: async () => JSON.stringify({ error: 'text intern de Python', code }),
+    });
+
+    await expect(proxyToPython({ path: '/chat/internal', token: token() })).rejects.toMatchObject({
+      status: 503, message, errorCode: code,
     });
   });
 
@@ -186,12 +203,14 @@ describe('proxy Node → Python', () => {
     fetchMock.mockResolvedValue({
       ok: false,
       status: 503,
-      text: async () => JSON.stringify({ detail: 'internal detail' }),
+      text: async () => JSON.stringify({ detail: 'internal detail', code: 'ALTRE_CODI' }),
     });
 
+    // Un codi desconegut de Python no s'accepta: es tracta com un error genèric.
     await expect(proxyToPython({ path: '/chat/internal', token: token() })).rejects.toMatchObject({
       status: 502,
       message: 'El servei de xatbot ha fallat',
+      errorCode: 'CHATBOT_ERROR',
     });
   });
 

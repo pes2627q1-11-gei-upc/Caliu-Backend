@@ -106,36 +106,63 @@ paths:
                     - { order: 1, id: "6710f1c2a1b2c3d4e5f60718", title: "Visita guiada al Call", start: "2026-11-21T10:30:00+01:00", end: "2026-11-21T12:00:00+01:00", venue: "Call jueu", address: "", municipality: "Girona", coordinates: [2.8259, 41.9875], distanceKm: null, travelMinutes: null, url: "" }
                     - { order: 2, id: "6710f1c2a1b2c3d4e5f60719", title: "Concert vermut", start: "2026-11-21T12:30:00+01:00", end: "2026-11-21T13:30:00+01:00", venue: "", address: "", municipality: "Girona", coordinates: [2.824, 41.9845], distanceKm: 0.4, travelMinutes: 2, url: "" }
         '400':
-          description: Missatge o identificador de sessió no vàlid
+          description: |
+            Petició no vàlida. No reintentar: cal corregir el missatge.
+            Codis: `INVALID_BODY`, `MESSAGE_REQUIRED`, `MESSAGE_TOO_LONG`, `INVALID_SESSION_ID`.
+            (Un cos que no és JSON vàlid també dona 400, amb `{ error: "JSON no vàlid" }` i sense `code`.)
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/Error' }
+              schema: { $ref: '#/components/schemas/ChatError' }
+              example: { error: 'Camp "message" massa llarg (màxim 500 caràcters)', code: MESSAGE_TOO_LONG }
         '401':
-          description: Cal autenticació
+          description: Cal autenticació (error comú de l'API, sense `code`). Cal tornar a iniciar sessió.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
         '404':
-          description: Sessió de xat no trobada
+          description: |
+            Sessió de xat no trobada o d'una altra persona (`SESSION_NOT_FOUND`). Es pot començar
+            una conversa nova enviant el missatge sense `sessionId`.
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/Error' }
+              schema: { $ref: '#/components/schemas/ChatError' }
+              example: { error: Sessió de xat no trobada, code: SESSION_NOT_FOUND }
         '429':
-          description: Límit de missatges assolit (10 per minut i usuari)
+          description: |
+            Límit de missatges assolit, 10 per minut i usuari (`RATE_LIMITED`). Es pot reintentar quan
+            ho indiquin les capçaleres `RateLimit` / `RateLimit-Policy`.
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/Error' }
+              schema: { $ref: '#/components/schemas/ChatError' }
+              example: { error: Has arribat al límit de missatges; torna-ho a provar més tard, code: RATE_LIMITED }
         '502':
-          description: Servei Python no disponible
+          description: |
+            El servei de xatbot ha fallat o ha donat una resposta no vàlida
+            (`CHATBOT_ERROR`, `CHATBOT_INVALID_RESPONSE`). Es pot reintentar.
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/Error' }
+              schema: { $ref: '#/components/schemas/ChatError' }
+              example: { error: El servei de xatbot ha fallat, code: CHATBOT_ERROR }
+        '503':
+          description: |
+            Servei no disponible: el xatbot (`CHATBOT_UNAVAILABLE`) o la base d'esdeveniments
+            (`EVENTS_UNAVAILABLE`). Es pot reintentar més tard.
+            Si només falla el model d'IA, la resposta no és aquest error sinó un 200 amb `type: fallback`.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChatError' }
+              example: { error: El servei d'esdeveniments no està disponible, code: EVENTS_UNAVAILABLE }
+        '504':
+          description: El servei de xatbot ha tardat massa a respondre (`CHATBOT_TIMEOUT`, després de `PYTHON_TIMEOUT_MS`). Es pot reintentar.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChatError' }
+              example: { error: El servei de xatbot ha tardat massa a respondre, code: CHATBOT_TIMEOUT }
         '500':
-          description: Error intern en la configuració o la persistència
+          description: Error intern en la configuració o la persistència (error comú de l'API, sense `code`).
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
-
   /events:
     get:
       summary: Llista d'esdeveniments (amb filtres i paginació)
@@ -243,6 +270,33 @@ components:
       type: object
       properties:
         error: { type: string }
+    ChatError:
+      type: object
+      description: |
+        Error de `POST /chat/messages` (#143). `error` és un missatge per mostrar a l'usuari i `code` un
+        identificador estable perquè l'app decideixi què fer sense dependre del text.
+
+        | Codi | HTTP | Reintentar? |
+        |------|------|-------------|
+        | `INVALID_BODY` | 400 | No: el cos té camps no admesos |
+        | `MESSAGE_REQUIRED` | 400 | No: cal escriure un missatge |
+        | `MESSAGE_TOO_LONG` | 400 | No: màxim 500 caràcters |
+        | `INVALID_SESSION_ID` | 400 | No: `sessionId` mal format |
+        | `SESSION_NOT_FOUND` | 404 | No: començar una sessió nova |
+        | `RATE_LIMITED` | 429 | Sí, més tard |
+        | `CHATBOT_ERROR` | 502 | Sí |
+        | `CHATBOT_INVALID_RESPONSE` | 502 | Sí |
+        | `CHATBOT_UNAVAILABLE` | 503 | Sí, més tard |
+        | `EVENTS_UNAVAILABLE` | 503 | Sí, més tard |
+        | `CHATBOT_TIMEOUT` | 504 | Sí |
+
+        Cap d'aquests errors desa el missatge a l'historial: reintentar no el duplica.
+      required: [error, code]
+      properties:
+        error: { type: string }
+        code:
+          type: string
+          enum: [INVALID_BODY, MESSAGE_REQUIRED, MESSAGE_TOO_LONG, INVALID_SESSION_ID, SESSION_NOT_FOUND, RATE_LIMITED, CHATBOT_ERROR, CHATBOT_INVALID_RESPONSE, CHATBOT_UNAVAILABLE, EVENTS_UNAVAILABLE, CHATBOT_TIMEOUT]
     Event:
       type: object
       properties:
