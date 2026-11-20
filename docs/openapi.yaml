@@ -260,6 +260,34 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
 
+  /users/me/attended:
+    get:
+      summary: Consulta els esdeveniments acabats als quals ha assistit l'usuari autenticat
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Llista del més recent al més antic segons la data de finalització. Pot ser buida.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/Event' }
+        '401':
+          description: Cal una sessió vàlida
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '500':
+          description: Error intern del servidor
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
   /users/me/activity:
     get:
       summary: Consulta les assistències de l'usuari autenticat
