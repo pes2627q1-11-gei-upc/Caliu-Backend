@@ -13,15 +13,19 @@ TZ = ZoneInfo(TIMEZONE)
 MAX_STEPS = 5
 # Dos esdeveniments que comencen amb menys diferència es consideren a la mateixa hora: guanya el més proper.
 SAME_TIME = timedelta(minutes=30)
-# Espera màxima entre el final d'un pas i l'inici del següent.
+# Espera màxima entre el final d'un pas i l'inici del següent (no s'aplica al primer pas: un itinerari
+# per a un altre dia comença a les 00:00).
 MAX_WAIT = timedelta(hours=3)
 # Distància màxima entre passos consecutius: un itinerari encadenat ha de ser a prop.
 MAX_LEG_KM = 15
 # Velocitat mitjana aproximada per estimar el desplaçament (a peu i en transport públic).
 TRAVEL_SPEED_KMH = 20
-# Un esdeveniment més llarg és d'horari obert (exposició, fira...): s'hi fa una visita d'aquesta durada.
+# Un esdeveniment més llarg és d'horari obert (exposició, fira...): s'hi fa una visita d'aquesta durada,
+# sencera dins de la franja d'obertura (hora local). Les dades no porten l'horari real d'obertura.
 LONG_EVENT = timedelta(hours=6)
 DEFAULT_VISIT = timedelta(minutes=90)
+OPEN_FROM = time(10, 0)
+OPEN_UNTIL = time(20, 0)
 
 
 # Mongo retorna les dates sense zona horària (en UTC).
@@ -47,14 +51,22 @@ def _visit(event: dict, arrival: datetime) -> tuple[datetime, datetime, bool] | 
     start = _utc(event["startDate"])
     end = _utc(event.get("endDate") or event["startDate"])
     if end - start > LONG_EVENT:
-        visit_start = max(start, arrival)
-        if visit_start >= end:
+        day = arrival.astimezone(TZ).date()
+        visit_start = max(start, arrival, datetime.combine(day, OPEN_FROM, TZ))
+        if visit_start >= end or visit_start + DEFAULT_VISIT > datetime.combine(day, OPEN_UNTIL, TZ):
             return None
         return visit_start, min(end, visit_start + DEFAULT_VISIT), True
     # Un esdeveniment curt (concert, visita guiada) s'ha de fer sencer: no s'hi pot arribar tard.
     if arrival > start:
         return None
     return start, max(end, start), False  # dades amb endDate < startDate: dura 0
+
+
+# Cert si, acabada la visita `option`, encara s'arriba a l'inici de `fixed` (desplaçament inclòs).
+def _arrives_in_time(option, fixed) -> bool:
+    here, there = _coordinates(option[3]), _coordinates(fixed[3])
+    travel = timedelta(hours=distance_km(here, there) / TRAVEL_SPEED_KMH) if here and there else timedelta()
+    return option[0][1] + travel <= fixed[0][0]
 
 
 def _step(order: int, event: dict, visit_start, visit_end, leg_km, travel) -> dict:
@@ -103,16 +115,16 @@ def build_itinerary(
                 continue
             travel = timedelta(hours=leg / TRAVEL_SPEED_KMH) if leg is not None else timedelta()
             visit = _visit(event, now + travel)
-            if not visit or visit[1] > until or visit[0] - (now + travel) > MAX_WAIT:
+            if not visit or visit[1] > until or (steps and visit[0] - (now + travel) > MAX_WAIT):
                 continue
             options.append((visit, leg, travel, event))
         if not options:
             break
 
-        # Un esdeveniment d'horari obert només s'escull si no fa perdre el proper esdeveniment amb hora fixa.
-        fixed_starts = [visit[0] for visit, *_ in options if not visit[2]]
-        next_fixed = min(fixed_starts) if fixed_starts else None
-        options = [o for o in options if not o[0][2] or next_fixed is None or o[0][1] <= next_fixed]
+        # Un esdeveniment d'horari obert només s'escull si després s'arriba a temps al proper amb hora fixa.
+        fixed = [o for o in options if not o[0][2]]
+        next_fixed = min(fixed, key=lambda o: o[0][0]) if fixed else None
+        options = [o for o in options if not o[0][2] or next_fixed is None or _arrives_in_time(o, next_fixed)]
 
         earliest = min(visit[0] for visit, *_ in options)
         same_time = [o for o in options if o[0][0] - earliest < SAME_TIME]
