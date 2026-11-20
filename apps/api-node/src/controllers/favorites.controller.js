@@ -1,3 +1,4 @@
+import { toApi } from './events.controller.js';
 import mongoose from 'mongoose';
 import Event from '../models/Event.js';
 import Interaction from '../models/Interaction.js';
@@ -47,4 +48,29 @@ export async function removeFavorite(req, res, next) {
   } catch (err) {
     return next(err);
   }
+}
+
+async function listInteractions(req, res, next, type, serialize) {
+  try {
+    const interactions = await Interaction.find({ userId: req.user._id, type })
+      .sort({ createdAt: -1, _id: -1 })
+      .populate('eventId')
+      .lean();
+    const items = interactions.filter(({ eventId }) => eventId).map(serialize);
+    return res.json({ items });
+  } catch (err) {
+    return next(err);
+  }
+}
+
+export function listFavorites(req, res, next) {
+  return listInteractions(req, res, next, 'favorite', ({ eventId }) => toApi(eventId, new Set([String(eventId._id)])));
+}
+
+export function listActivity(req, res, next) {
+  return listInteractions(req, res, next, 'attended', ({ _id, eventId, createdAt }) => ({
+    id: String(_id),
+    event: toApi(eventId),
+    attendedAt: createdAt,
+  }));
 }

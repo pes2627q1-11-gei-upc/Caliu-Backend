@@ -260,7 +260,68 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
 
+  /users/me/activity:
+    get:
+      summary: Consulta les assistències de l'usuari autenticat
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Llista del més recent al més antic. Pot ser buida.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, event, attendedAt]
+                      properties:
+                        id: { type: string }
+                        event: { $ref: '#/components/schemas/Event' }
+                        attendedAt: { type: string, format: date-time, description: Data del registre de l'assistència }
+        '401':
+          description: Cal una sessió vàlida
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '500':
+          description: Error intern del servidor
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
   /users/me/favorites:
+    get:
+      summary: Consulta els preferits de l'usuari autenticat
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Llista del més recent al més antic. Pot ser buida.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Event'
+        '401':
+          description: Cal una sessió vàlida
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '500':
+          description: Error intern del servidor
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
     post:
       summary: Desa un esdeveniment als preferits de l'usuari autenticat
       description: |
@@ -471,7 +532,7 @@ components:
         source: { type: string, description: "ingest = dades reals, seed = dades de prova" }
         isFavorite:
           type: boolean
-          description: Indica si l'usuari autenticat ha desat l'esdeveniment. Només es retorna a GET /events i GET /events/{id} amb sessió vàlida.
+          description: Indica si l'usuari autenticat ha desat l'esdeveniment. Es retorna a GET /events i GET /events/{id} amb sessió vàlida, i a GET /users/me/favorites és sempre true.
         distanceMeters: { type: integer, description: "Només present si s'han enviat lat i lng" }
     ExternalEvent:
       type: object
