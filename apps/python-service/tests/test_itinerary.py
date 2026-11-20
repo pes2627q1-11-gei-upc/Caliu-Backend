@@ -142,6 +142,34 @@ def test_stays_within_the_day_and_the_step_limit():
     assert titles(build_itinerary(many, NOW, until=at(13))) == ["Pas 11", "Pas 12"]
 
 
+@pytest.mark.parametrize("hour", [0, 8, 10])
+def test_plan_for_a_whole_day_does_not_depend_on_the_start_hour(hour):
+    # Un itinerari per a un altre dia (#140) comença a les 00:00: ha de donar el mateix pla que a les 10:00.
+    steps = build_itinerary(EVENTS, at(hour))
+    assert titles(steps) == ["Visita guiada al Call", "Concert vermut", "Exposició al museu", "Titelles"]
+
+
+def test_max_wait_does_not_apply_to_the_first_step():
+    afternoon = event("Concert de tarda", at(15), at(16), RAMBLA)
+    assert titles(build_itinerary([afternoon], at(0))) == ["Concert de tarda"]
+
+
+def test_open_hours_visits_stay_within_opening_hours():
+    steps = build_itinerary([EXHIBITION], at(0))
+    assert (steps[0]["start"], steps[0]["end"]) == ("2026-11-21T10:00:00+01:00", "2026-11-21T11:30:00+01:00")
+    assert titles(build_itinerary([EXHIBITION], at(18, 30))) == ["Exposició al museu"]  # 18:30–20:00
+    assert build_itinerary([EXHIBITION], at(19)) == []  # la visita ja no cap abans de les 20:00
+
+
+@pytest.mark.parametrize("start,guided_at", [(at(9), at(10, 35)), (at(10), at(11, 35))])
+def test_open_hours_event_accounts_for_travel_to_the_next_fixed_one(start, guided_at):
+    # L'exposició a Salt acabaria 5 minuts abans de la visita, però hi ha ~9 minuts fins a la catedral.
+    salt_exhibition = event("Exposició a Salt", datetime(2026, 11, 1, 10, tzinfo=TZ),
+                            datetime(2026, 12, 31, 20, tzinfo=TZ), SALT)
+    guided = event("Visita guiada", guided_at, guided_at + timedelta(hours=1), CATEDRAL)
+    assert titles(build_itinerary([salt_exhibition, guided], start)) == ["Visita guiada", "Exposició a Salt"]
+
+
 def test_duplicate_events_appear_once():
     assert titles(build_itinerary([GUIDED, dict(GUIDED)], NOW)) == ["Visita guiada al Call"]
 
