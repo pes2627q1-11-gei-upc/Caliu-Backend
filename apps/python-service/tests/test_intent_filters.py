@@ -157,7 +157,7 @@ def test_default_client_has_timeout(monkeypatch):
     monkeypatch.setattr(intent, "_client", None)
     monkeypatch.setattr(google.genai, "Client", lambda **kwargs: created.update(kwargs) or "client")
     assert intent._default_client() == "client"
-    assert created["http_options"] == {"timeout": intent.GEMINI_TIMEOUT_MS}
+    assert created["http_options"] == {"timeout": 15_000}  # GEMINI_TIMEOUT_MS per defecte (#142)
     monkeypatch.setattr(intent, "_client", None)
 
 

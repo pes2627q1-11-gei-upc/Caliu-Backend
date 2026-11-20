@@ -130,6 +130,17 @@ describe('POST /chat/messages', () => {
     expect(res.body).toEqual({ sessionId: CHAT_SESSION_ID, type: 'text', reply: 'Text' });
   });
 
+  it('returns the fallback answer without storing it, so the message can be sent again (#142)', async () => {
+    proxyToPython.mockResolvedValueOnce({ type: 'fallback', reply: 'Ara mateix no puc respondre…', language: 'ca' });
+
+    const res = await auth(request(app).post('/chat/messages').send({ message: 'plans per avui?' }));
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ sessionId: CHAT_SESSION_ID, type: 'fallback', reply: 'Ara mateix no puc respondre…' });
+    expect(SessioXatbot.create).toHaveBeenCalledWith({ userId: USER_ID });
+    expect(MissatgeXatbot.create).not.toHaveBeenCalled();
+  });
+
   it('uses an existing session only when it belongs to the authenticated user', async () => {
     const res = await auth(request(app).post('/chat/messages').send({
       message: 'teatre',

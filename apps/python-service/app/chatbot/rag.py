@@ -263,6 +263,26 @@ def build_system_instruction(now: datetime | None = None, language_name: str | N
     )
 
 
+# Esdeveniments per respondre (#142): els que compleixen els filtres i, si no n'hi ha cap, un suggeriment
+# més general (les mateixes dates sense la resta de criteris i, si tampoc, els propers dies). El tercer
+# valor indica si són alternatives. Una data passada no s'amplia: s'ha d'explicar que ja ha passat.
+def select_events(now: datetime | None, filters: EventFilters, collection=None) -> tuple[list[dict], int, bool]:
+    events, total = retrieve_upcoming_events(now=now, filters=filters, collection=collection)
+    if events or filters.date_passed or filters.is_empty():
+        return events, total, False
+    broader = []
+    if filters.from_ or filters.to:
+        broader.append(EventFilters(from_=filters.from_, to=filters.to, time_of_day=filters.time_of_day))
+    broader.append(EventFilters())
+    for wider in broader:
+        if wider == filters:
+            continue
+        events, total = retrieve_upcoming_events(now=now, filters=wider, collection=collection)
+        if events:
+            return events, total, True
+    return [], 0, False
+
+
 # Filtres del missatge, amb els missatges anteriors de l'usuari com a context. Si Gemini falla, sense filtres.
 def extract_message_filters(
     message: str,
@@ -304,8 +324,9 @@ def answer_with_events(
 ) -> str:
     if filters is None:
         filters = extract_message_filters(message, now, history, filter_extractor)
-    events, total = retrieve_upcoming_events(now=now, filters=filters, collection=collection)
-    if not events and (filters.municipality or filters.comarca):
+    events, total, alternatives = select_events(now, filters, collection)
+    # La cerca demanada no ha trobat res (tant si hi ha alternatives com si no).
+    if (alternatives or not events) and (filters.municipality or filters.comarca):
         requested_place = filters.municipality or filters.comarca
         location_note = (
             f"No s'han trobat esdeveniments per a «{requested_place}». "
@@ -315,8 +336,17 @@ def answer_with_events(
         location_note = ""
     if filters.date_passed:
         context_note = "La data demanada ja ha passat; explica-ho clarament i no recomanis altres dates.\n"
+    elif alternatives:
+        context_note = (
+            "No s'han trobat esdeveniments amb els criteris demanats. Comença dient-ho de manera clara i amable "
+            "(p. ex. «No he trobat activitats per aquests criteris») i, com a suggeriment més general, proposa "
+            "alguns d'aquests esdeveniments deixant clar que no compleixen tots els criteris.\n"
+        )
     elif not events:
-        context_note = "No s'han trobat esdeveniments coincidents amb la cerca.\n"
+        context_note = (
+            "No s'han trobat esdeveniments coincidents amb la cerca, ni tampoc propostes més generals. "
+            "Digues-ho de manera clara i amable i suggereix ampliar la cerca (una altra data, zona o categoria).\n"
+        )
     else:
         context_note = ""
     history_context = ""
