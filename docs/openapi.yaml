@@ -371,6 +371,40 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
 
+  /users/me/favorites/{eventId}:
+    delete:
+      summary: Elimina un esdeveniment dels preferits de l'usuari autenticat
+      description: |
+        És idempotent. Retorna 204 també si no hi ha cap preferit per a aquest
+        identificador.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: eventId
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^[0-9A-Fa-f]{24}$'
+      responses:
+        '204':
+          description: El preferit ja no és a la llista
+        '400':
+          description: Identificador d'esdeveniment invàlid
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401':
+          description: Credencial absent, invàlida o sessió revocada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '500':
+          description: Error intern del servidor
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
 components:
   securitySchemes:
     bearerAuth:
@@ -437,7 +471,7 @@ components:
         source: { type: string, description: "ingest = dades reals, seed = dades de prova" }
         isFavorite:
           type: boolean
-          description: Indica si l'usuari autenticat ha desat l'esdeveniment. S'omet en respostes anònimes.
+          description: Indica si l'usuari autenticat ha desat l'esdeveniment. Només es retorna a GET /events i GET /events/{id} amb sessió vàlida.
         distanceMeters: { type: integer, description: "Només present si s'han enviat lat i lng" }
     ExternalEvent:
       type: object

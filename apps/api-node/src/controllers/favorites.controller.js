@@ -34,3 +34,17 @@ export async function addFavorite(req, res, next) {
     return next(err);
   }
 }
+
+export async function removeFavorite(req, res, next) {
+  const { eventId } = req.params;
+  if (!mongoose.isObjectIdOrHexString(eventId)) {
+    return res.status(400).json({ error: 'Identificador d’esdeveniment invàlid' });
+  }
+
+  try {
+    await Interaction.deleteOne({ userId: req.user._id, type: 'favorite', eventId });
+    return res.status(204).end();
+  } catch (err) {
+    return next(err);
+  }
+}
