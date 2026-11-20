@@ -124,6 +124,16 @@ def test_future_day_and_time_of_day_bound_the_plan():
     assert answer["reply"].startswith("Només he trobat una activitat que encaixi per al 22/11:")
 
 
+def test_whole_future_day_starts_at_midnight_and_still_plans_the_day():
+    # «itinerari per diumenge»: el pla comença a les 00:00 de diumenge i ha d'incloure el dia sencer.
+    sunday = SUNDAY + [event("Concert de diumenge", at(13, day=22), at(14, day=22), RAMBLA)]
+    answer = answer_chat("fes-me un itinerari per diumenge", now=NOW, client=FakeGemini(),
+                         collection=FakeCollection(sunday),
+                         filter_extractor=extractor({"itinerary": True, "date_from": "2026-11-22"}))
+    assert answer["type"] == "plan"
+    assert [s["title"] for s in answer["plan"]["steps"]] == ["Fira de diumenge", "Concert de diumenge"]
+
+
 def test_itinerary_without_steps_is_a_text_answer():
     gemini = FakeGemini()
     answer = answer_chat("itinerari", now=NOW, client=gemini, collection=FakeCollection([]),
