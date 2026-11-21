@@ -74,3 +74,18 @@ export function listActivity(req, res, next) {
     attendedAt: createdAt,
   }));
 }
+
+export async function listAttended(req, res, next) {
+  try {
+    const interactions = await Interaction.find({ userId: req.user._id, type: 'attended' })
+      .populate({ path: 'eventId', match: { endDate: { $lt: new Date() } } })
+      .lean();
+    const items = interactions.map(({ eventId }) => eventId)
+      .filter(Boolean)
+      .sort((a, b) => b.endDate - a.endDate || String(a._id).localeCompare(String(b._id)))
+      .map((event) => toApi(event));
+    return res.json({ items });
+  } catch (err) {
+    return next(err);
+  }
+}
