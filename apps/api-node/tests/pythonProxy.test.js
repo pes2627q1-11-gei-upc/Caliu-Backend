@@ -214,38 +214,31 @@ describe('proxy Node → Python', () => {
     });
   });
 
-  it('tradueix errors 4xx de Python sense exposar-ne el cos', async () => {
-    const fetchMock = jest.spyOn(global, 'fetch').mockResolvedValue({
+  it('manté el 401 de Python sense exposar-ne el cos', async () => {
+    jest.spyOn(global, 'fetch').mockResolvedValue({
       ok: false,
       status: 401,
       text: async () => JSON.stringify({ detail: 'internal detail' }),
     });
 
-    await expect(proxyToPython({ path: '/chat/internal', token: token() })).rejects.toMatchObject({
-      status: 401,
-      message: 'Sessió no vàlida',
-    });
+    const error = await proxyToPython({ path: '/chat/internal', token: token() }).catch((err) => err);
+    expect(error).toMatchObject({ status: 401, message: 'Sessió no vàlida' });
+    expect(error.errorCode).toBeUndefined();
+  });
 
-    fetchMock.mockResolvedValue({
+  // Revisió del #50: un error inesperat de Python no pot arribar a l'app amb un estat que l'OpenAPI
+  // reserva per a un altre codi (p. ex. 404 és SESSION_NOT_FOUND).
+  it.each([400, 403, 404, 409, 422, 500])('normalitza un %i inesperat de Python a 502 CHATBOT_ERROR', async (status) => {
+    jest.spyOn(global, 'fetch').mockResolvedValue({
       ok: false,
-      status: 400,
-      text: async () => JSON.stringify({ detail: 'internal detail' }),
-    });
-
-    await expect(proxyToPython({ path: '/chat/internal', token: token() })).rejects.toMatchObject({
-      status: 400,
-      message: 'El servei de xatbot ha fallat',
-    });
-
-    fetchMock.mockResolvedValue({
-      ok: false,
-      status: 422,
-      text: async () => JSON.stringify({ detail: 'invalid body' }),
+      status,
+      text: async () => JSON.stringify({ detail: 'internal detail', code: 'SESSION_NOT_FOUND' }),
     });
 
     await expect(proxyToPython({ path: '/chat/internal', token: token() })).rejects.toMatchObject({
       status: 502,
       message: 'El servei de xatbot ha fallat',
+      errorCode: 'CHATBOT_ERROR',
     });
   });
 });

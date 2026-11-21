@@ -140,6 +140,8 @@ paths:
           description: |
             El servei de xatbot ha fallat o ha donat una resposta no vàlida
             (`CHATBOT_ERROR`, `CHATBOT_INVALID_RESPONSE`). Es pot reintentar.
+            Qualsevol error inesperat del servei de xatbot (p. ex. un 4xx intern) arriba com a 502 `CHATBOT_ERROR`:
+            els altres estats d'aquesta llista només tenen els codis que s'hi indiquen.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ChatError' }

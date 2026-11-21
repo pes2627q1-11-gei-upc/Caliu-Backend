@@ -81,13 +81,12 @@ export async function proxyToPython({ path, method = 'POST', token, body } = {})
     }
   }
   if (!response.ok) {
+    // Només es mantenen els casos explícits del contracte (OpenAPI, #143): 401 i els 503 amb codi conegut.
+    // Qualsevol altre error de Python (400, 404, 422, 500…) és inesperat per a l'app: 502 CHATBOT_ERROR.
     const unavailable = response.status === 503 && Object.hasOwn(PYTHON_UNAVAILABLE, payload?.code);
     if (unavailable) throw httpError(503, PYTHON_UNAVAILABLE[payload.code], payload.code);
-    const status = response.status >= 400 && response.status < 500 && response.status !== 422
-      ? response.status
-      : 502;
-    if (status === 401) throw httpError(401, 'Sessió no vàlida');
-    throw httpError(status, 'El servei de xatbot ha fallat', 'CHATBOT_ERROR');
+    if (response.status === 401) throw httpError(401, 'Sessió no vàlida');
+    throw httpError(502, 'El servei de xatbot ha fallat', 'CHATBOT_ERROR');
   }
   return payload;
 }
