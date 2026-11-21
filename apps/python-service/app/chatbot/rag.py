@@ -53,6 +53,14 @@ EVENT_FIELDS = (
     "price",
     "url",
 )
+EVENT_CARD_FIELDS = (
+    "code",
+    "location",
+    "images",
+    "email",
+    "phone",
+    "source",
+)
 MAX_HISTORY_MESSAGE_LENGTH = 1000
 
 
@@ -131,7 +139,7 @@ def retrieve_upcoming_events(
     if query is None:
         return [], 0
     start = max(filters.from_ or now, now)
-    projection = {field: 1 for field in EVENT_FIELDS}
+    projection = {field: 1 for field in (*EVENT_FIELDS, *EVENT_CARD_FIELDS)}
     projection["_id"] = 1
     source = collection if collection is not None else _events_collection()
     collation = LOCATION_COLLATION if filters.municipality or filters.comarca else None
@@ -206,6 +214,14 @@ def _local_datetime(value):
     return value.astimezone(TZ).isoformat()
 
 
+def _api_datetime(value):
+    if not isinstance(value, datetime):
+        return value
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
 def _event_context(events: list[dict], total: int) -> str:
     records = []
     for event in events:
@@ -262,7 +278,7 @@ def build_system_instruction(now: datetime | None = None, language_name: str | N
     )
 
 
-def answer_with_events(
+def answer_with_events_and_cards(
     message: str,
     now: datetime | None = None,
     client=None,
@@ -270,7 +286,7 @@ def answer_with_events(
     filter_extractor=None,
     history: list[dict] | None = None,
     language_name: str | None = None,
-) -> str:
+) -> tuple[str, list[dict]]:
     try:
         previous_user_messages = [
             item["content"][:MAX_HISTORY_MESSAGE_LENGTH]
@@ -322,9 +338,41 @@ def answer_with_events(
         f"{safe_message}\n"
         "</missatge_usuari>"
     )
-    return (client or GeminiClient()).generate(
+    reply = (client or GeminiClient()).generate(
         prompt,
         system_instruction=build_system_instruction(now, language_name),
         temperature=0.25,
         max_output_tokens=2048,
     )
+    cards = []
+    for event in events:
+        card = {
+            "id": str(event["_id"]),
+            **{field: event[field] for field in (*EVENT_FIELDS, *EVENT_CARD_FIELDS) if field in event},
+        }
+        for field in ("startDate", "endDate"):
+            if field in card:
+                card[field] = _api_datetime(card[field])
+        cards.append(card)
+    return reply, cards
+
+
+def answer_with_events(
+    message: str,
+    now: datetime | None = None,
+    client=None,
+    collection=None,
+    filter_extractor=None,
+    history: list[dict] | None = None,
+    language_name: str | None = None,
+) -> str:
+    reply, _ = answer_with_events_and_cards(
+        message,
+        now=now,
+        client=client,
+        collection=collection,
+        filter_extractor=filter_extractor,
+        history=history,
+        language_name=language_name,
+    )
+    return reply

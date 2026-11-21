@@ -59,7 +59,7 @@ export async function postChatMessage(req, res, next) {
         })),
       },
     });
-    if (typeof result?.reply !== 'string' || !result.reply.trim()) {
+    if (typeof result?.reply !== 'string' || !result.reply.trim() || !Array.isArray(result.events)) {
       return next(Object.assign(new Error('Resposta del servei de xatbot no vàlida'), { status: 502 }));
     }
 
@@ -81,6 +81,7 @@ export async function postChatMessage(req, res, next) {
     return res.status(200).json({
       sessionId: String(chatSession._id),
       reply: result.reply,
+      events: result.events,
     });
   } catch (err) {
     return next(err);
