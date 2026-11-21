@@ -5,7 +5,7 @@ import { EVENT_CATEGORIES } from '../domain/eventCategories.js';
 import { parseEventQuery, parseNearbyQuery, parseSearchQuery } from '../domain/eventQuery.js';
 
 // Document de Mongo (lean) -> JSON de l'API: _id passa a "id" i s'amaguen camps interns.
-function toApi(doc, favoriteIds = null) {
+export function toApi(doc, favoriteIds = null) {
   const { _id, __v, createdAt, updatedAt, isFavorite: _isFavorite, ...rest } = doc;
   const out = { id: String(_id), ...rest };
   if (typeof out.distanceMeters === 'number') out.distanceMeters = Math.round(out.distanceMeters);

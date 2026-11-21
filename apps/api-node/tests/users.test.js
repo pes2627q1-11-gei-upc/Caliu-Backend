@@ -326,3 +326,77 @@ describe('#166 baixa de preferits', () => {
     expect((await auth(request(app).delete(path))).status).toBe(500);
   });
 });
+
+describe('#151 guardats i activitat', () => {
+  const eventId = '64b7f0c2a1b2c3d4e5f60720';
+  const interactionId = '64b7f0c2a1b2c3d4e5f60721';
+  const createdAt = new Date('2026-11-18T12:00:00Z');
+  const doc = { _id: interactionId, eventId: { _id: eventId, title: 'Concert', __v: 0 }, createdAt };
+  let lean;
+  let sort;
+
+  beforeEach(() => {
+    lean = jest.fn().mockResolvedValue([doc, { eventId: null }]);
+    sort = jest.fn().mockReturnValue({ populate: jest.fn().mockReturnValue({ lean }) });
+    jest.spyOn(Interaction, 'find').mockReturnValue({ sort });
+  });
+
+  it.each([
+    ['favorites', 'favorite', { id: eventId, title: 'Concert', isFavorite: true }],
+    ['activity', 'attended', { id: interactionId, event: { id: eventId, title: 'Concert' }, attendedAt: createdAt.toISOString() }],
+  ])('retorna només les interaccions pròpies a /%s', async (route, type, item) => {
+    const res = await auth(request(app).get(`/users/me/${route}?userId=${OTHER_ID}`));
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ items: [item] });
+    expect(Interaction.find).toHaveBeenCalledWith({ userId: ID, type });
+    expect(sort).toHaveBeenCalledWith({ createdAt: -1, _id: -1 });
+  });
+
+  it.each(['favorites', 'activity'])('retorna una llista buida i exigeix sessió a /%s', async (route) => {
+    const path = `/users/me/${route}`;
+    expect((await request(app).get(path)).status).toBe(401);
+    expect(Interaction.find).not.toHaveBeenCalled();
+    lean.mockResolvedValueOnce([]);
+    expect((await auth(request(app).get(path))).body).toEqual({ items: [] });
+    lean.mockRejectedValueOnce(new Error('Mongo unavailable'));
+    expect((await auth(request(app).get(path))).status).toBe(500);
+  });
+});
+
+describe('#168 historial d’assistència', () => {
+  const path = '/users/me/attended';
+  let populate;
+  let lean;
+
+  beforeEach(() => {
+    lean = jest.fn().mockResolvedValue([]);
+    populate = jest.fn().mockReturnValue({ lean });
+    jest.spyOn(Interaction, 'find').mockReturnValue({ populate });
+  });
+
+  it('demana només assistències pròpies i esdeveniments acabats', async () => {
+    const older = { _id: '64b7f0c2a1b2c3d4e5f60720', endDate: new Date('2026-10-15') };
+    const newer = { _id: '64b7f0c2a1b2c3d4e5f60721', endDate: new Date('2026-11-01') };
+    lean.mockResolvedValueOnce([{ eventId: older }, { eventId: null }, { eventId: newer }]);
+    const before = Date.now();
+    const res = await auth(request(app).get(`${path}?userId=${OTHER_ID}`));
+
+    expect(res.status).toBe(200);
+    expect(res.body.items.map(({ id }) => id)).toEqual([newer._id, older._id]);
+    expect(Interaction.find).toHaveBeenCalledWith({ userId: ID, type: 'attended' });
+    expect(populate).toHaveBeenCalledWith({ path: 'eventId', match: { endDate: { $lt: expect.any(Date) } } });
+    const cutoff = populate.mock.calls[0][0].match.endDate.$lt.getTime();
+    expect(cutoff).toBeGreaterThanOrEqual(before);
+    expect(cutoff).toBeLessThanOrEqual(Date.now());
+  });
+
+  it('requereix sessió i retorna items buits si no hi ha resultats', async () => {
+    expect((await request(app).get(path)).status).toBe(401);
+    expect(Interaction.find).not.toHaveBeenCalled();
+    const res = await auth(request(app).get(path));
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ items: [] });
+    lean.mockRejectedValueOnce(new Error('Mongo unavailable'));
+    expect((await auth(request(app).get(path))).status).toBe(500);
+  });
+});
