@@ -99,6 +99,15 @@ def test_without_clues_defaults_to_catalan():
     assert detect_conversation_language("ok", [{"role": "user", "content": "Girona"}]) == "ca"
 
 
+def test_app_locale_is_the_fallback_language():
+    assert detect_conversation_language("ok", default="es") == "es"
+    assert detect_conversation_language("Girona", [{"role": "user", "content": "Girona"}], default="en") == "en"
+    # El missatge i l'historial tenen prioritat; un idioma desconegut no s'aplica.
+    assert detect_conversation_language("què hi ha avui?", default="en") == "ca"
+    assert detect_conversation_language("ok", [{"role": "user", "content": "¿Qué hay hoy?"}], default="en") == "es"
+    assert detect_conversation_language("ok", default="fr") == DEFAULT_LANGUAGE
+
+
 def test_clear_message_wins_over_history():
     history = [{"role": "user", "content": "què fer amb nens a la tarda"}]
     assert detect_conversation_language("what about tomorrow?", history) == "en"
@@ -161,10 +170,11 @@ def test_answer_with_events_sends_language_to_gemini(monkeypatch):
 def test_messages_endpoint_answers_in_detected_language(monkeypatch, message, history, expected):
     seen = {}
 
-    def fake_answer(text, history, language_name):
+    def fake_answer(text, history, language_name, filters=None):
         seen["language_name"] = language_name
         return "ok"
 
+    monkeypatch.setattr(chat_router, "extract_chat_filters", lambda message, history=None: EventFilters())
     monkeypatch.setattr(
         chat_router,
         "answer_with_events_and_cards",

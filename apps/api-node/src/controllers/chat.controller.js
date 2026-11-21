@@ -6,10 +6,12 @@ import { proxyToPython } from '../integrations/pythonService.js';
 const MAX_MESSAGE_LENGTH = 500;
 const MAX_HISTORY_MESSAGES = 10;
 const MAX_HISTORY_MESSAGE_LENGTH = 1000;
+// Idiomes de l'app (#147): Python el fa servir quan no pot detectar l'idioma del missatge.
+const LOCALES = ['ca', 'es', 'en'];
 
 function validateMessage(body) {
   if (!body || typeof body !== 'object' || Array.isArray(body)
-    || Object.keys(body).some((key) => !['message', 'sessionId'].includes(key))) {
+    || Object.keys(body).some((key) => !['message', 'sessionId', 'locale'].includes(key))) {
     return { error: 'Cos de la petició no vàlid' };
   }
   if (typeof body.message !== 'string' || !body.message.trim()) {
@@ -23,7 +25,10 @@ function validateMessage(body) {
     && (typeof body.sessionId !== 'string' || !mongoose.isValidObjectId(body.sessionId))) {
     return { error: 'Camp "sessionId" no vàlid' };
   }
-  return { message };
+  if (body.locale !== undefined && !LOCALES.includes(body.locale)) {
+    return { error: `Camp "locale" no vàlid (${LOCALES.join(', ')})` };
+  }
+  return { message, locale: body.locale };
 }
 
 export async function postChatMessage(req, res, next) {
@@ -57,12 +62,17 @@ export async function postChatMessage(req, res, next) {
           role,
           content: content.slice(0, MAX_HISTORY_MESSAGE_LENGTH),
         })),
+        ...(validated.locale ? { locale: validated.locale } : {}),
       },
     });
     if (typeof result?.reply !== 'string' || !result.reply.trim()) {
       return next(Object.assign(new Error('Resposta del servei de xatbot no vàlida'), { status: 502 }));
     }
     const events = Array.isArray(result.events) ? result.events : [];
+    // Filtres interpretats (#138): l'app els mostra sota la resposta. null si Python no n'envia.
+    const filters = result.filters && typeof result.filters === 'object' && !Array.isArray(result.filters)
+      ? result.filters
+      : null;
 
     if (!chatSession) {
       chatSession = await SessioXatbot.create({ userId: req.user._id });
@@ -83,6 +93,7 @@ export async function postChatMessage(req, res, next) {
       sessionId: String(chatSession._id),
       reply: result.reply,
       events,
+      filters,
     });
   } catch (err) {
     return next(err);

@@ -1,14 +1,21 @@
 from datetime import datetime
 
+import pytest
 from fastapi.testclient import TestClient
 from pymongo.errors import PyMongoError
 
 import app.routers.chat as chat_router
-from app.chatbot.intent import TZ, IntentExtractionError, normalize_filters
+from app.chatbot.intent import TZ, EventFilters, IntentExtractionError, normalize_filters
 from app.main import app
 
 client = TestClient(app)
 NOW = datetime(2026, 11, 18, 10, 0, tzinfo=TZ)
+
+
+@pytest.fixture(autouse=True)
+def no_filters(monkeypatch):
+    # Per defecte, /chat/messages no crida Gemini per extreure filtres: cap filtre.
+    monkeypatch.setattr(chat_router, "extract_chat_filters", lambda message, history=None: EventFilters())
 
 
 def test_filters_endpoint(monkeypatch):
@@ -56,7 +63,7 @@ def test_messages_endpoint_returns_rag_reply(monkeypatch):
 
     events = [{"id": "event-1", "title": "Concert"}]
 
-    def fake_answer(message, history, language_name):
+    def fake_answer(message, history, language_name, filters=None):
         seen["message"] = message
         seen["history"] = history
         seen["language_name"] = language_name
@@ -74,8 +81,64 @@ def test_messages_endpoint_returns_rag_reply(monkeypatch):
         "reply": "Et recomano un concert.",
         "language": "ca",
         "events": events,
+        "filters": None,
     }
     assert seen == {"message": "i demà?", "history": history, "language_name": "català"}
+
+
+def test_messages_endpoint_returns_interpreted_filters(monkeypatch):
+    seen = {}
+    filters = normalize_filters({"audience": "infantil", "time_of_day": "tarda", "free": True}, NOW)
+
+    def fake_extract(message, history=None):
+        seen["extract"] = (message, history)
+        return filters
+
+    def fake_answer(message, history, language_name, filters=None):
+        seen["filters"] = filters
+        return "Et recomano un taller.", []
+
+    monkeypatch.setattr(chat_router, "extract_chat_filters", fake_extract)
+    monkeypatch.setattr(chat_router, "answer_with_events_and_cards", fake_answer)
+    res = client.post("/chat/messages", json={"message": "què fer amb nens a la tarda gratis"})
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["filters"]["audience"] == "infantil"
+    assert body["filters"]["timeOfDay"] == "tarda"
+    assert body["filters"]["maxPrice"] == 0
+    assert body["filters"]["from"] == "2026-11-18T15:00:00+01:00"
+    # Els filtres s'extreuen una sola vegada i es reaprofiten per a la resposta.
+    assert seen["extract"] == ("què fer amb nens a la tarda gratis", [])
+    assert seen["filters"] is filters
+
+
+@pytest.mark.parametrize(
+    "message,locale,expected",
+    [
+        ("ok", "es", "es"),
+        ("Girona", "en", "en"),
+        ("ok", None, "ca"),
+        # L'idioma del missatge té prioritat sobre el de l'app.
+        ("What can I do with the kids?", "es", "en"),
+    ],
+)
+def test_messages_endpoint_uses_app_locale_as_fallback(monkeypatch, message, locale, expected):
+    monkeypatch.setattr(
+        chat_router,
+        "answer_with_events_and_cards",
+        lambda message, history, language_name, filters=None: ("ok", []),
+    )
+    payload = {"message": message}
+    if locale:
+        payload["locale"] = locale
+    res = client.post("/chat/messages", json=payload)
+    assert res.status_code == 200
+    assert res.json()["language"] == expected
+
+
+def test_messages_endpoint_rejects_unknown_locale():
+    assert client.post("/chat/messages", json={"message": "teatre", "locale": "fr"}).status_code == 422
 
 
 def test_messages_endpoint_validates_message():
@@ -100,7 +163,7 @@ def test_messages_endpoint_validates_message():
 
 
 def test_messages_endpoint_returns_service_unavailable_on_gemini_error(monkeypatch, caplog):
-    def fail(message, history, language_name):
+    def fail(message, history, language_name, filters=None):
         raise RuntimeError("model unavailable")
 
     monkeypatch.setattr(chat_router, "answer_with_events_and_cards", fail)
@@ -112,7 +175,7 @@ def test_messages_endpoint_returns_service_unavailable_on_gemini_error(monkeypat
 
 
 def test_messages_endpoint_returns_service_unavailable_on_mongo_error(monkeypatch, caplog):
-    def fail(message, history, language_name):
+    def fail(message, history, language_name, filters=None):
         raise PyMongoError("database unavailable")
 
     monkeypatch.setattr(chat_router, "answer_with_events_and_cards", fail)

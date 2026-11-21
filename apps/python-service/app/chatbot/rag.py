@@ -286,15 +286,14 @@ def build_system_instruction(now: datetime | None = None, language_name: str | N
     )
 
 
-def answer_with_events_and_cards(
+# Filtres interpretats del missatge, amb els missatges anteriors de l'usuari com a context. Si Gemini falla,
+# es continua sense filtres. El router els fa servir per a la resposta i per retornar-los a l'app (#138).
+def extract_chat_filters(
     message: str,
-    now: datetime | None = None,
-    client=None,
-    collection=None,
-    filter_extractor=None,
     history: list[dict] | None = None,
-    language_name: str | None = None,
-) -> tuple[str, list[dict]]:
+    now: datetime | None = None,
+    filter_extractor=None,
+) -> EventFilters:
     try:
         previous_user_messages = [
             item["content"][:MAX_HISTORY_MESSAGE_LENGTH]
@@ -311,10 +310,25 @@ def answer_with_events_and_cards(
                 "Missatge actual (té prioritat):\n"
                 f"{message}"
             )
-        filters = (filter_extractor or extract_filters)(filter_message, now=now)
+        return (filter_extractor or extract_filters)(filter_message, now=now)
     except IntentExtractionError:
         logger.warning("No s'han pogut extreure filtres del missatge; es continua sense filtres")
-        filters = EventFilters()
+        return EventFilters()
+
+
+def answer_with_events_and_cards(
+    message: str,
+    now: datetime | None = None,
+    client=None,
+    collection=None,
+    filter_extractor=None,
+    history: list[dict] | None = None,
+    language_name: str | None = None,
+    filters: EventFilters | None = None,
+) -> tuple[str, list[dict]]:
+    # `filters` permet reaprofitar els que ja ha extret el router; si no es donen, s'extreuen aquí.
+    if filters is None:
+        filters = extract_chat_filters(message, history=history, now=now, filter_extractor=filter_extractor)
     events, total = retrieve_upcoming_events(now=now, filters=filters, collection=collection)
     if not events and (filters.municipality or filters.comarca):
         requested_place = filters.municipality or filters.comarca
