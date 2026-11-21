@@ -56,13 +56,13 @@ def test_messages_endpoint_returns_rag_reply(monkeypatch):
 
     events = [{"id": "event-1", "title": "Concert"}]
 
-    def fake_answer(message, history, language_name):
+    def fake_answer(message, history, language):
         seen["message"] = message
         seen["history"] = history
-        seen["language_name"] = language_name
-        return "Et recomano un concert.", events
+        seen["language"] = language
+        return {"type": "text", "reply": "Et recomano un concert.", "events": events}
 
-    monkeypatch.setattr(chat_router, "answer_with_events_and_cards", fake_answer)
+    monkeypatch.setattr(chat_router, "answer_chat", fake_answer)
     history = [{"role": "user", "content": "què hi ha avui?"}]
     res = client.post("/chat/messages", json={
         "message": "  i demà?  ",
@@ -71,11 +71,12 @@ def test_messages_endpoint_returns_rag_reply(monkeypatch):
 
     assert res.status_code == 200
     assert res.json() == {
+        "type": "text",
         "reply": "Et recomano un concert.",
-        "language": "ca",
         "events": events,
+        "language": "ca",
     }
-    assert seen == {"message": "i demà?", "history": history, "language_name": "català"}
+    assert seen == {"message": "i demà?", "history": history, "language": "ca"}
 
 
 def test_messages_endpoint_validates_message():
@@ -100,10 +101,10 @@ def test_messages_endpoint_validates_message():
 
 
 def test_messages_endpoint_returns_service_unavailable_on_gemini_error(monkeypatch, caplog):
-    def fail(message, history, language_name):
+    def fail(message, history, language):
         raise RuntimeError("model unavailable")
 
-    monkeypatch.setattr(chat_router, "answer_with_events_and_cards", fail)
+    monkeypatch.setattr(chat_router, "answer_chat", fail)
     res = client.post("/chat/messages", json={"message": "teatre"})
 
     assert res.status_code == 503
@@ -112,10 +113,10 @@ def test_messages_endpoint_returns_service_unavailable_on_gemini_error(monkeypat
 
 
 def test_messages_endpoint_returns_service_unavailable_on_mongo_error(monkeypatch, caplog):
-    def fail(message, history, language_name):
+    def fail(message, history, language):
         raise PyMongoError("database unavailable")
 
-    monkeypatch.setattr(chat_router, "answer_with_events_and_cards", fail)
+    monkeypatch.setattr(chat_router, "answer_chat", fail)
     res = client.post("/chat/messages", json={"message": "teatre"})
 
     assert res.status_code == 503

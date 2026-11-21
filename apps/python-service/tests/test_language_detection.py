@@ -161,16 +161,12 @@ def test_answer_with_events_sends_language_to_gemini(monkeypatch):
 def test_messages_endpoint_answers_in_detected_language(monkeypatch, message, history, expected):
     seen = {}
 
-    def fake_answer(text, history, language_name):
-        seen["language_name"] = language_name
-        return "ok"
+    def fake_answer(text, history, language):
+        seen["language"] = language
+        return {"type": "text", "reply": "ok"}
 
-    monkeypatch.setattr(
-        chat_router,
-        "answer_with_events_and_cards",
-        lambda *args, **kwargs: (fake_answer(*args, **kwargs), []),
-    )
+    monkeypatch.setattr(chat_router, "answer_chat", fake_answer)
     res = client.post("/chat/messages", json={"message": message, "history": history})
     assert res.status_code == 200
     assert res.json()["language"] == expected
-    assert seen["language_name"] == LANGUAGE_NAMES[expected]
+    assert seen["language"] == expected
