@@ -169,6 +169,7 @@ def test_retries_a_transient_error_and_returns_the_answer(monkeypatch):
     _server_error(504),
     ClientError(429, {"error": {"code": 429, "message": "quota", "status": "RESOURCE_EXHAUSTED"}}, None),
     httpx.ReadTimeout("timed out"),
+    httpx.ConnectError("connection refused"),
 ])
 def test_gives_up_after_the_retries_with_a_specific_error(monkeypatch, error):
     client, mock = _client_with(monkeypatch, [error, error, error], retries=2)

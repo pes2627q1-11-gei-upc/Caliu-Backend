@@ -136,8 +136,19 @@ describe('POST /chat/messages', () => {
     const res = await auth(request(app).post('/chat/messages').send({ message: 'plans per avui?' }));
 
     expect(res.status).toBe(200);
+    // Conversa nova: no es crea cap sessió buida.
+    expect(res.body).toEqual({ sessionId: null, type: 'fallback', reply: 'Ara mateix no puc respondre…' });
+    expect(SessioXatbot.create).not.toHaveBeenCalled();
+    expect(MissatgeXatbot.create).not.toHaveBeenCalled();
+  });
+
+  it('keeps the existing session on a fallback answer', async () => {
+    proxyToPython.mockResolvedValueOnce({ type: 'fallback', reply: 'Ara mateix no puc respondre…' });
+
+    const res = await auth(request(app).post('/chat/messages').send({ message: 'i demà?', sessionId: CHAT_SESSION_ID }));
+
+    expect(res.status).toBe(200);
     expect(res.body).toEqual({ sessionId: CHAT_SESSION_ID, type: 'fallback', reply: 'Ara mateix no puc respondre…' });
-    expect(SessioXatbot.create).toHaveBeenCalledWith({ userId: USER_ID });
     expect(MissatgeXatbot.create).not.toHaveBeenCalled();
   });
 

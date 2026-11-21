@@ -54,7 +54,8 @@ paths:
             que l'app mostra amb el widget d'itinerari. `reply` sempre porta el text (també el del pla).
             `fallback` vol dir que el model d'IA no ha respost després dels reintents: `reply` és un missatge
             alternatiu (amb algunes activitats, si n'hi ha) i la conversa no es desa a l'historial, de manera
-            que l'app pot oferir tornar a enviar el mateix missatge a la mateixa sessió.
+            que l'app pot oferir tornar a enviar el mateix missatge (a la mateixa sessió, o sense `sessionId`
+            si era una conversa nova).
             Si no hi ha resultats per als criteris, `reply` ho diu i proposa alternatives més generals.
           content:
             application/json:
@@ -62,7 +63,7 @@ paths:
                 type: object
                 required: [sessionId, type, reply]
                 properties:
-                  sessionId: { type: string }
+                  sessionId: { type: string, nullable: true, description: "null només si era una conversa nova i la resposta és `fallback` (no es crea cap sessió buida)" }
                   type: { type: string, enum: [text, plan, fallback] }
                   reply: { type: string }
                   plan:

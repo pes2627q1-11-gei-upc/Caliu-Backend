@@ -7,7 +7,11 @@ from google.genai.errors import ClientError
 
 import app.routers.chat as chat_router
 from app.chatbot.fallback import MAX_FALLBACK_EVENTS, fallback_reply
-from app.chatbot.gemini_client import GeminiUnavailableError
+from unittest.mock import MagicMock, patch
+
+import httpx
+
+from app.chatbot.gemini_client import GeminiClient, GeminiResponseError, GeminiUnavailableError
 from app.chatbot.intent import EventFilters, normalize_filters
 from app.chatbot.plan import answer_chat
 from app.chatbot.rag import answer_with_events, select_events
@@ -116,7 +120,7 @@ def _chat(error, documents, args=None, language="ca"):
 @pytest.mark.parametrize("error", [
     GeminiUnavailableError("sense resposta"),
     ClientError(404, {"error": {"code": 404, "message": "model", "status": "NOT_FOUND"}}, None),
-    RuntimeError("Gemini no ha retornat text"),
+    GeminiResponseError("Gemini no ha retornat text"),
 ])
 def test_gemini_failure_returns_a_fallback_with_events(error):
     answer = _chat(error, [TEATRE, EXPOSICIO])
@@ -126,6 +130,45 @@ def test_gemini_failure_returns_a_fallback_with_events(error):
     assert "- Exposició en curs · en curs" in lines
     assert "- Teatre avui · 18/11 16:00 · Girona" in lines
     assert lines[-1].startswith("Pots tornar a enviar el missatge")
+
+
+def test_connection_errors_end_in_a_fallback_once_the_attempts_are_exhausted(monkeypatch):
+    # Revisió del #49: un httpx.ConnectError (connexió refusada) es reintenta i, esgotats els intents,
+    # el xat dona la resposta alternativa en lloc d'un 500.
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    monkeypatch.setenv("GEMINI_RETRIES", "2")
+    sdk = MagicMock()
+    sdk.models.generate_content.side_effect = httpx.ConnectError("connection refused")
+    with patch("app.chatbot.gemini_client.genai.Client", return_value=sdk):
+        gemini = GeminiClient()
+    gemini._sleep = lambda _seconds: None
+
+    answer = answer_chat("x", now=NOW, client=gemini, collection=FakeCollection([TEATRE]),
+                         filter_extractor=lambda message, now: EventFilters())
+
+    assert answer["type"] == "fallback"
+    assert "- Teatre avui · 18/11 16:00 · Girona" in answer["reply"]
+    assert sdk.models.generate_content.call_count == 3  # 1 intent + 2 reintents
+
+
+def test_configuration_errors_are_not_hidden_behind_a_fallback(monkeypatch):
+    # Sense GEMINI_API_KEY el servidor està mal configurat: ha de donar un 503 visible, no un 200.
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    with pytest.raises(RuntimeError, match="GEMINI_API_KEY"):
+        answer_chat("x", now=NOW, collection=FakeCollection([TEATRE]),
+                    filter_extractor=lambda message, now: EventFilters())
+    res = TestClient(app).post("/chat/messages", json={"message": "què fer avui?"})
+    assert res.status_code == 503
+    assert res.json()["code"] == "CHATBOT_UNAVAILABLE"
+
+
+def test_fallback_reuses_the_events_without_querying_mongo_again():
+    ok, failing = FakeCollection([TEATRE]), FakeCollection([TEATRE])
+    answer_chat("x", now=NOW, client=SimpleNamespace(generate=lambda *a, **k: "ok"), collection=ok,
+                filter_extractor=lambda message, now: EventFilters())
+    answer_chat("x", now=NOW, client=FailingGemini(GeminiUnavailableError("x")), collection=failing,
+                filter_extractor=lambda message, now: EventFilters())
+    assert len(failing.find_args) == len(ok.find_args)
 
 
 def test_fallback_says_when_the_events_are_broader_suggestions():

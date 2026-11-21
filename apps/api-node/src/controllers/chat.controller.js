@@ -63,13 +63,13 @@ export async function postChatMessage(req, res, next) {
       return next(Object.assign(new Error('Resposta del servei de xatbot no vàlida'), { status: 502 }));
     }
 
-    if (!chatSession) {
+    // "fallback" (#142): Gemini no ha respost i Python dona una resposta alternativa. No es desa a
+    // l'historial: si l'usuari torna a enviar el missatge, no queda duplicat. Si era una conversa nova,
+    // tampoc es crea la sessió (no quedaria buida a l'historial de converses) i sessionId és null.
+    const isFallback = result.type === 'fallback';
+    if (!chatSession && !isFallback) {
       chatSession = await SessioXatbot.create({ userId: req.user._id });
     }
-
-    // "fallback" (#142): Gemini no ha respost i Python dona una resposta alternativa. No es desa a
-    // l'historial: si l'usuari torna a enviar el missatge, no queda duplicat. La sessió es manté.
-    const isFallback = result.type === 'fallback';
     if (!isFallback) {
       await MissatgeXatbot.create({
         sessionId: chatSession._id,
@@ -89,7 +89,7 @@ export async function postChatMessage(req, res, next) {
     if (isPlan) type = 'plan';
     else if (isFallback) type = 'fallback';
     return res.status(200).json({
-      sessionId: String(chatSession._id),
+      sessionId: chatSession ? String(chatSession._id) : null,
       type,
       reply: result.reply,
       ...(isPlan ? { plan: result.plan } : {}),
