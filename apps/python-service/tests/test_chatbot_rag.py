@@ -15,6 +15,7 @@ from app.chatbot.rag import (
     MAX_CONTEXT_EVENTS,
     MAX_DESCRIPTION_LENGTH,
     answer_with_events,
+    answer_with_events_and_cards,
     build_system_instruction,
     retrieve_upcoming_events,
 )
@@ -670,6 +671,89 @@ def test_event_context_converts_dates_bounds_description_and_explains_price():
         "temperature": 0.25,
         "max_output_tokens": 2048,
     }
+
+
+def test_answer_returns_clickable_event_cards_in_api_shape(monkeypatch):
+    monkeypatch.setenv("APP_ENV", "development")
+    event_doc = {
+        "_id": "event-1",
+        "code": "20261118001",
+        "title": "Concert",
+        "description": "Un concert.",
+        "startDate": datetime(2026, 11, 18, 12, 0),
+        "endDate": datetime(2026, 11, 18, 14, 0),
+        "venue": "Sala",
+        "municipality": "Girona",
+        "categories": ["Música"],
+        "price": 0,
+        "url": "https://example.cat/concert",
+        "images": ["https://example.cat/concert.jpg"],
+        "location": {"type": "Point", "coordinates": [2.82, 41.98]},
+    }
+    collection = FakeCollection([event_doc])
+
+    reply, cards = answer_with_events_and_cards(
+        "Què puc fer avui?",
+        now=NOW,
+        client=SimpleNamespace(generate=lambda *_args, **_kwargs: "Et recomano Concert."),
+        collection=collection,
+        filter_extractor=lambda message, now: EventFilters(),
+    )
+
+    assert reply == "Et recomano Concert."
+    expected_card = {key: value for key, value in event_doc.items() if key != "_id"}
+    expected_card["startDate"] = "2026-11-18T12:00:00.000Z"
+    expected_card["endDate"] = "2026-11-18T14:00:00.000Z"
+    assert cards == [{"id": "event-1", **expected_card}]
+    assert collection.find_args[0][1]["images"] == 1
+    assert collection.find_args[0][1]["location"] == 1
+
+
+def test_answer_returns_only_mentioned_events_and_at_most_three(monkeypatch):
+    monkeypatch.setenv("APP_ENV", "development")
+    events = [
+        event("No esmentat", NOW + timedelta(hours=1), NOW + timedelta(hours=2)),
+        event("Jazz al cafè", NOW + timedelta(hours=2), NOW + timedelta(hours=3)),
+        event("Música clàssica", NOW + timedelta(hours=3), NOW + timedelta(hours=4)),
+        event("Concert de tarda", NOW + timedelta(hours=4), NOW + timedelta(hours=5)),
+        event("Mercat de llibres", NOW + timedelta(hours=5), NOW + timedelta(hours=6)),
+    ]
+    collection = FakeCollection(events)
+
+    _, cards = answer_with_events_and_cards(
+        "Què puc fer avui?",
+        now=NOW,
+        client=SimpleNamespace(
+            generate=lambda *_args, **_kwargs: (
+                "Et recomano Jazz al cafè, musica classica, Concert de tarda i Mercat de llibres."
+            ),
+        ),
+        collection=collection,
+        filter_extractor=lambda message, now: EventFilters(),
+    )
+
+    assert [card["title"] for card in cards] == [
+        "Jazz al cafè",
+        "Música clàssica",
+        "Concert de tarda",
+    ]
+
+
+def test_answer_returns_no_cards_when_reply_does_not_name_events(monkeypatch):
+    monkeypatch.setenv("APP_ENV", "development")
+    collection = FakeCollection([
+        event("Jazz al cafè", NOW + timedelta(hours=1), NOW + timedelta(hours=2)),
+    ])
+
+    _, cards = answer_with_events_and_cards(
+        "Què puc fer avui?",
+        now=NOW,
+        client=SimpleNamespace(generate=lambda *_args, **_kwargs: "Només puc ajudar a descobrir esdeveniments."),
+        collection=collection,
+        filter_extractor=lambda message, now: EventFilters(),
+    )
+
+    assert cards == []
 
 
 def test_prompt_explains_empty_context_and_response_rules():

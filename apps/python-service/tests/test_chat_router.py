@@ -54,11 +54,13 @@ def test_filters_endpoint_gemini_down(monkeypatch):
 def test_messages_endpoint_returns_rag_reply(monkeypatch):
     seen = {}
 
+    events = [{"id": "event-1", "title": "Concert"}]
+
     def fake_answer(message, history, language):
         seen["message"] = message
         seen["history"] = history
         seen["language"] = language
-        return {"type": "text", "reply": "Et recomano un concert."}
+        return {"type": "text", "reply": "Et recomano un concert.", "events": events}
 
     monkeypatch.setattr(chat_router, "answer_chat", fake_answer)
     history = [{"role": "user", "content": "què hi ha avui?"}]
@@ -68,7 +70,12 @@ def test_messages_endpoint_returns_rag_reply(monkeypatch):
     })
 
     assert res.status_code == 200
-    assert res.json() == {"type": "text", "reply": "Et recomano un concert.", "language": "ca"}
+    assert res.json() == {
+        "type": "text",
+        "reply": "Et recomano un concert.",
+        "events": events,
+        "language": "ca",
+    }
     assert seen == {"message": "i demà?", "history": history, "language": "ca"}
 
 

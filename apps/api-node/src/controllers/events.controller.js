@@ -5,7 +5,7 @@ import { EVENT_CATEGORIES } from '../domain/eventCategories.js';
 import { parseEventQuery, parseNearbyQuery, parseSearchQuery } from '../domain/eventQuery.js';
 
 // Document de Mongo (lean) -> JSON de l'API: _id passa a "id" i s'amaguen camps interns.
-function toApi(doc, favoriteIds = null) {
+export function toApi(doc, favoriteIds = null) {
   const { _id, __v, createdAt, updatedAt, isFavorite: _isFavorite, ...rest } = doc;
   const out = { id: String(_id), ...rest };
   if (typeof out.distanceMeters === 'number') out.distanceMeters = Math.round(out.distanceMeters);
@@ -24,7 +24,8 @@ async function favoriteIdsFor(user, items) {
 }
 
 // Consulta comuna de GET /events i GET /events/search: filtre + (opcionalment) proximitat + paginació.
-async function findEvents({ filter, geo, limit, skip }) {
+// També la reaprofita l'API externa (controllers/external.controller.js).
+export async function findEvents({ filter, geo, limit, skip }) {
   if (geo) {
     // $geoNear ordena per distància i afegeix "distanceMeters" a cada resultat.
     const near = {

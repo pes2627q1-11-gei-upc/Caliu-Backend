@@ -102,6 +102,7 @@ Endpoints principals:
 | `GET` | `/events/categories` | Categories disponibles |
 | `GET` | `/events/locations` | Parelles úniques de comarca i municipi amb esdeveniments disponibles |
 | `GET` | `/events/:id` | Detall d’un esdeveniment |
+| `GET` | `/ext/v1/events` | Agenda per dates i zona per a altres equips (clau `X-API-Key`) |
 
 Coordenades en ordre **GeoJSON** `[lng, lat]`. Errors: `{ "error": "…" }`.
 

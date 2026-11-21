@@ -134,6 +134,31 @@ def test_whole_future_day_starts_at_midnight_and_still_plans_the_day():
     assert [s["title"] for s in answer["plan"]["steps"]] == ["Fira de diumenge", "Concert de diumenge"]
 
 
+def test_text_answer_includes_the_cards_of_the_events_it_mentions():
+    # Integració amb #54: la resposta de text porta les targetes dels esdeveniments que esmenta.
+    # FakeCollection retorna els mateixos documents a les tres consultes de retrieve_upcoming_events; amb
+    # Mongo real (propers, en curs curts i en curs llargs) no se solapen. Aquí només els dona la primera.
+    class OnceCollection(FakeCollection):
+        def find(self, query, projection, **kwargs):
+            cursor = super().find(query, projection, **kwargs)
+            self.documents = []
+            return cursor
+
+    gemini = SimpleNamespace(generate=lambda *a, **k: "Et recomano el Concert vermut, a la Rambla.")
+    answer = answer_chat("què fer avui?", now=NOW, client=gemini, collection=OnceCollection(SATURDAY),
+                         filter_extractor=extractor({}))
+    assert answer["type"] == "text"
+    assert [card["title"] for card in answer["events"]] == ["Concert vermut"]
+    assert answer["events"][0]["id"] == "Concert vermut"
+
+
+def test_plan_answer_has_no_cards_because_the_steps_carry_the_events():
+    answer = answer_chat("itinerari", now=NOW, client=FakeGemini(), collection=FakeCollection(SATURDAY),
+                         filter_extractor=extractor({"itinerary": True}))
+    assert answer["type"] == "plan" and answer["events"] == []
+    assert all(step["id"] for step in answer["plan"]["steps"])
+
+
 def test_itinerary_without_steps_is_a_text_answer():
     gemini = FakeGemini()
     answer = answer_chat("itinerari", now=NOW, client=gemini, collection=FakeCollection([]),
@@ -142,6 +167,7 @@ def test_itinerary_without_steps_is_a_text_answer():
         "type": "text",
         "reply": "No he trobat activitats per encadenar en un itinerari per al 21/11. "
                  "Prova amb una altra data, franja o zona.",
+        "events": [],
     }
     assert gemini.calls == []
 
@@ -150,7 +176,7 @@ def test_past_date_itinerary_is_answered_by_gemini():
     gemini = FakeGemini()
     answer = answer_chat("itinerari d'ahir", now=NOW, client=gemini, collection=FakeCollection(SATURDAY),
                          filter_extractor=extractor({"itinerary": True, "date_from": "2026-11-20"}))
-    assert answer == {"type": "text", "reply": "Resposta de text."}
+    assert answer == {"type": "text", "reply": "Resposta de text.", "events": []}
     assert len(gemini.calls) == 1
 
 
@@ -158,7 +184,7 @@ def test_other_messages_keep_the_text_answer_with_one_extraction():
     gemini, extract = FakeGemini(), extractor({"audience": "infantil"})
     answer = answer_chat("què fer amb nens?", now=NOW, client=gemini, collection=FakeCollection(SATURDAY),
                          filter_extractor=extract, language="es")
-    assert answer == {"type": "text", "reply": "Resposta de text."}
+    assert answer == {"type": "text", "reply": "Resposta de text.", "events": []}
     assert len(extract.calls) == 1
     assert "respon sempre en castellà" in gemini.calls[0]
 

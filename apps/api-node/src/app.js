@@ -3,6 +3,7 @@ import eventsRoutes from './routes/events.routes.js';
 import authRoutes from './routes/auth.routes.js';
 import usersRoutes from './routes/users.routes.js';
 import chatRoutes from './routes/chat.routes.js';
+import externalRoutes from './routes/external.routes.js';
 import { errorHandler, notFound } from './middlewares/errorHandler.js';
 import { createCors } from './middlewares/cors.js';
 
@@ -22,6 +23,7 @@ app.use('/events', eventsRoutes);
 app.use('/auth', authRoutes);
 app.use('/users', usersRoutes);
 app.use('/chat', chatRoutes);
+app.use('/ext/v1', externalRoutes); // API per a altres equips (clau X-API-Key)
 
 // Sempre al final
 app.use(notFound);
