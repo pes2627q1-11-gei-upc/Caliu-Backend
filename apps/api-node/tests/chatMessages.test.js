@@ -89,6 +89,7 @@ describe('POST /chat/messages', () => {
       type: 'text',
       reply: 'Et recomano un concert.',
       events: [{ id: 'event-1', title: 'Concert de prova' }],
+      filters: null,
     });
     expect(SessioXatbot.create).toHaveBeenCalledWith({ userId: USER_ID });
     expect(MissatgeXatbot.create).toHaveBeenNthCalledWith(1, {
@@ -118,7 +119,9 @@ describe('POST /chat/messages', () => {
     const res = await auth(request(app).post('/chat/messages').send({ message: 'fes-me un itinerari' }));
 
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ sessionId: CHAT_SESSION_ID, type: 'plan', reply: 'Aquí tens un itinerari…', events: [], plan });
+    expect(res.body).toEqual({
+      sessionId: CHAT_SESSION_ID, type: 'plan', reply: 'Aquí tens un itinerari…', events: [], filters: null, plan,
+    });
     expect(MissatgeXatbot.create).toHaveBeenNthCalledWith(2, {
       sessionId: CHAT_SESSION_ID,
       role: 'assistant',
@@ -135,7 +138,7 @@ describe('POST /chat/messages', () => {
     proxyToPython.mockResolvedValueOnce(result);
     const res = await auth(request(app).post('/chat/messages').send({ message: 'itinerari' }));
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ sessionId: CHAT_SESSION_ID, type: 'text', reply: 'Text', events: [] });
+    expect(res.body).toEqual({ sessionId: CHAT_SESSION_ID, type: 'text', reply: 'Text', events: [], filters: null });
   });
 
   it('uses an existing session only when it belongs to the authenticated user', async () => {
@@ -202,6 +205,8 @@ describe('POST /chat/messages', () => {
     { message: '  ' },
     { message: 'x'.repeat(501) },
     { message: 'hola', userId: OTHER_USER_ID },
+    { message: 'hola', locale: 'fr' },
+    { message: 'hola', locale: 3 },
   ])('validates message input before creating chat data', async (body) => {
     const res = await auth(request(app).post('/chat/messages').send(body));
 
@@ -241,9 +246,47 @@ describe('POST /chat/messages', () => {
       type: 'text',
       reply: 'Et recomano un concert.',
       events: [],
+      filters: null,
     });
     expect(SessioXatbot.create).toHaveBeenCalledWith({ userId: USER_ID });
     expect(MissatgeXatbot.create).toHaveBeenCalledTimes(2);
+  });
+
+  it('forwards the app locale to Python', async () => {
+    const res = await auth(request(app).post('/chat/messages').send({ message: 'ok', locale: 'es' }));
+
+    expect(res.status).toBe(200);
+    expect(proxyToPython).toHaveBeenCalledWith({
+      path: '/chat/messages',
+      token: token,
+      body: { message: 'ok', history: [], locale: 'es' },
+    });
+  });
+
+  it('returns the filters interpreted by Python', async () => {
+    const filters = {
+      from: '2026-11-18T15:00:00+01:00',
+      to: '2026-11-18T20:00:00+01:00',
+      timeOfDay: 'tarda',
+      categories: [],
+      audience: 'infantil',
+      maxPrice: 0,
+    };
+    proxyToPython.mockResolvedValueOnce({ reply: 'Et recomano un taller.', events: [], filters });
+
+    const res = await auth(request(app).post('/chat/messages').send({ message: 'nens a la tarda' }));
+
+    expect(res.status).toBe(200);
+    expect(res.body.filters).toEqual(filters);
+  });
+
+  it('ignores malformed filters from Python', async () => {
+    proxyToPython.mockResolvedValueOnce({ reply: 'Et recomano un taller.', events: [], filters: ['tarda'] });
+
+    const res = await auth(request(app).post('/chat/messages').send({ message: 'nens a la tarda' }));
+
+    expect(res.status).toBe(200);
+    expect(res.body.filters).toBeNull();
   });
 
   it('rejects a Python response with an invalid reply', async () => {
