@@ -63,6 +63,7 @@ export async function postChatMessage(req, res, next) {
     if (typeof result?.reply !== 'string' || !result.reply.trim()) {
       return next(httpError(502, 'Resposta del servei de xatbot no vàlida', 'CHATBOT_INVALID_RESPONSE'));
     }
+    const events = Array.isArray(result.events) ? result.events : [];
 
     // "fallback" (#142): Gemini no ha respost i Python dona una resposta alternativa. No es desa a
     // l'historial: si l'usuari torna a enviar el missatge, no queda duplicat. Si era una conversa nova,
@@ -93,6 +94,7 @@ export async function postChatMessage(req, res, next) {
       sessionId: chatSession ? String(chatSession._id) : null,
       type,
       reply: result.reply,
+      events,
       ...(isPlan ? { plan: result.plan } : {}),
     });
   } catch (err) {

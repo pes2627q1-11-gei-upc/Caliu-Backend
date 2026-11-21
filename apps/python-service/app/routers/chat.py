@@ -76,6 +76,7 @@ def chat_messages(body: MessagesRequest):
             status_code=503,
             content={"error": "El servei d'esdeveniments no està disponible", "code": "EVENTS_UNAVAILABLE"},
         )
-    # {"type": "text" | "plan" | "fallback", "reply", "plan"?, "language"}: "plan" és el que mostra el widget
-    # d'itinerari; "fallback" és la resposta alternativa quan Gemini no ha respost (#142).
+    # {"type": "text" | "plan" | "fallback", "reply", "events", "plan"?, "language"}: "events" són les
+    # targetes clicables (#54), "plan" és el que mostra el widget d'itinerari (#140) i "fallback" és la
+    # resposta alternativa quan Gemini no ha respost (#142).
     return {**answer, "language": language}

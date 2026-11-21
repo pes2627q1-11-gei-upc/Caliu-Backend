@@ -182,6 +182,7 @@ def test_fallback_without_events():
         "type": "fallback",
         "reply": "I can't answer right now and I couldn't find activities for these criteria. "
                  "Please try again in a while or try another date or area.",
+        "events": [],
     }
 
 

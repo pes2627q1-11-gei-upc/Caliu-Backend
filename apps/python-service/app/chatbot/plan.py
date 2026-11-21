@@ -12,7 +12,7 @@ from app.chatbot.itinerary import build_itinerary
 from app.chatbot.language import DEFAULT_LANGUAGE, LANGUAGE_NAMES
 from app.chatbot.rag import (
     AnswerUnavailableError,
-    answer_with_events,
+    answer_with_events_and_cards,
     extract_message_filters,
     retrieve_upcoming_events,
 )
@@ -59,9 +59,10 @@ def plan_reply(steps: list[dict], day: datetime, language: str = DEFAULT_LANGUAG
     return "\n".join([header, *lines])
 
 
-# Resposta del xat: {"type": "plan", "reply", "plan": {"date", "steps"}} si es demana un itinerari,
-# {"type": "text", "reply"} per a la resta (també si l'itinerari no té cap pas), o {"type": "fallback",
-# "reply"} si Gemini no ha pogut respondre després dels reintents (#142).
+# Resposta del xat: {"type": "plan", "reply", "events": [], "plan": {"date", "steps"}} si es demana un
+# itinerari, {"type": "text", "reply", "events"} per a la resta (també si l'itinerari no té cap pas), o
+# {"type": "fallback", "reply", "events": []} si Gemini no ha pogut respondre després dels reintents (#142).
+# `events` són les targetes clicables dels esdeveniments que esmenta la resposta (#54).
 def answer_chat(
     message: str,
     now: datetime | None = None,
@@ -76,7 +77,7 @@ def answer_chat(
     # Una data passada la respon el text normal, que ja explica que ha passat.
     if not filters.itinerary or filters.date_passed:
         try:
-            reply = answer_with_events(
+            reply, cards = answer_with_events_and_cards(
                 message, now=now, client=client, collection=collection, history=history,
                 language_name=LANGUAGE_NAMES.get(language), filters=filters,
             )
@@ -84,8 +85,9 @@ def answer_chat(
             # Reintents esgotats, error de connexió o resposta sense text. Els errors de Mongo i de
             # configuració (p. ex. sense GEMINI_API_KEY) es propaguen i donen un 503.
             logger.exception("Gemini no ha pogut respondre; es retorna la resposta alternativa")
-            return {"type": "fallback", "reply": fallback_reply(exc.events, exc.alternatives, now, language)}
-        return {"type": "text", "reply": reply}
+            reply = fallback_reply(exc.events, exc.alternatives, now, language)
+            return {"type": "fallback", "reply": reply, "events": []}
+        return {"type": "text", "reply": reply, "events": cards}
 
     # Un itinerari és per a un sol dia: el primer dia demanat, des d'ara si és avui.
     start = max(filters.from_ or now, now).astimezone(TZ)
@@ -96,6 +98,8 @@ def answer_chat(
     )
     steps = build_itinerary(events, start, until=until) if until > start else []
     reply = plan_reply(steps, start, language)
+    # Sense targetes (#54): els passos del pla ja porten l'id i les dades de cada esdeveniment.
     if not steps:
-        return {"type": "text", "reply": reply}
-    return {"type": "plan", "reply": reply, "plan": {"date": start.date().isoformat(), "steps": steps}}
+        return {"type": "text", "reply": reply, "events": []}
+    return {"type": "plan", "reply": reply, "events": [],
+            "plan": {"date": start.date().isoformat(), "steps": steps}}

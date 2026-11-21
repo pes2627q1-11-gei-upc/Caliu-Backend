@@ -64,7 +64,10 @@ beforeEach(() => {
     limit: jest.fn().mockReturnThis(),
     lean: jest.fn().mockResolvedValue([]),
   });
-  proxyToPython.mockReset().mockResolvedValue({ reply: 'Et recomano un concert.' });
+  proxyToPython.mockReset().mockResolvedValue({
+    reply: 'Et recomano un concert.',
+    events: [{ id: 'event-1', title: 'Concert de prova' }],
+  });
 });
 
 afterEach(() => jest.restoreAllMocks());
@@ -82,7 +85,12 @@ describe('POST /chat/messages', () => {
 
     expect(res.status).toBe(200);
     expect(res.headers['cache-control']).toBe('no-store');
-    expect(res.body).toEqual({ sessionId: CHAT_SESSION_ID, type: 'text', reply: 'Et recomano un concert.' });
+    expect(res.body).toEqual({
+      sessionId: CHAT_SESSION_ID,
+      type: 'text',
+      reply: 'Et recomano un concert.',
+      events: [{ id: 'event-1', title: 'Concert de prova' }],
+    });
     expect(SessioXatbot.create).toHaveBeenCalledWith({ userId: USER_ID });
     expect(MissatgeXatbot.create).toHaveBeenNthCalledWith(1, {
       sessionId: CHAT_SESSION_ID,
@@ -111,7 +119,7 @@ describe('POST /chat/messages', () => {
     const res = await auth(request(app).post('/chat/messages').send({ message: 'fes-me un itinerari' }));
 
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ sessionId: CHAT_SESSION_ID, type: 'plan', reply: 'Aquí tens un itinerari…', plan });
+    expect(res.body).toEqual({ sessionId: CHAT_SESSION_ID, type: 'plan', reply: 'Aquí tens un itinerari…', events: [], plan });
     expect(MissatgeXatbot.create).toHaveBeenNthCalledWith(2, {
       sessionId: CHAT_SESSION_ID,
       role: 'assistant',
@@ -128,7 +136,7 @@ describe('POST /chat/messages', () => {
     proxyToPython.mockResolvedValueOnce(result);
     const res = await auth(request(app).post('/chat/messages').send({ message: 'itinerari' }));
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ sessionId: CHAT_SESSION_ID, type: 'text', reply: 'Text' });
+    expect(res.body).toEqual({ sessionId: CHAT_SESSION_ID, type: 'text', reply: 'Text', events: [] });
   });
 
   it('returns the fallback answer without storing it, so the message can be sent again (#142)', async () => {
@@ -138,7 +146,7 @@ describe('POST /chat/messages', () => {
 
     expect(res.status).toBe(200);
     // Conversa nova: no es crea cap sessió buida.
-    expect(res.body).toEqual({ sessionId: null, type: 'fallback', reply: 'Ara mateix no puc respondre…' });
+    expect(res.body).toEqual({ sessionId: null, type: 'fallback', reply: 'Ara mateix no puc respondre…', events: [] });
     expect(SessioXatbot.create).not.toHaveBeenCalled();
     expect(MissatgeXatbot.create).not.toHaveBeenCalled();
   });
@@ -149,7 +157,7 @@ describe('POST /chat/messages', () => {
     const res = await auth(request(app).post('/chat/messages').send({ message: 'i demà?', sessionId: CHAT_SESSION_ID }));
 
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ sessionId: CHAT_SESSION_ID, type: 'fallback', reply: 'Ara mateix no puc respondre…' });
+    expect(res.body).toEqual({ sessionId: CHAT_SESSION_ID, type: 'fallback', reply: 'Ara mateix no puc respondre…', events: [] });
     expect(MissatgeXatbot.create).not.toHaveBeenCalled();
   });
 
@@ -273,6 +281,35 @@ describe('POST /chat/messages', () => {
     expect(SessioXatbot.create).not.toHaveBeenCalled();
     expect(MissatgeXatbot.create).not.toHaveBeenCalled();
     expect(res.body).toEqual({ error: 'Error intern del servidor' });
+  });
+
+  it('returns an empty events list when Python does not provide events', async () => {
+    proxyToPython.mockResolvedValueOnce({ reply: 'Et recomano un concert.' });
+
+    const res = await auth(request(app).post('/chat/messages').send({ message: 'teatre' }));
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      sessionId: CHAT_SESSION_ID,
+      type: 'text',
+      reply: 'Et recomano un concert.',
+      events: [],
+    });
+    expect(SessioXatbot.create).toHaveBeenCalledWith({ userId: USER_ID });
+    expect(MissatgeXatbot.create).toHaveBeenCalledTimes(2);
+  });
+
+  it('rejects a Python response with an invalid reply', async () => {
+    proxyToPython.mockResolvedValueOnce({ reply: '  ', events: [] });
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    const res = await auth(request(app).post('/chat/messages').send({ message: 'teatre' }));
+
+    expect(res.status).toBe(502);
+    // #143: l'error porta el seu codi i un missatge propi en lloc del genèric.
+    expect(res.body).toEqual({ error: 'Resposta del servei de xatbot no vàlida', code: 'CHATBOT_INVALID_RESPONSE' });
+    expect(SessioXatbot.create).not.toHaveBeenCalled();
+    expect(MissatgeXatbot.create).not.toHaveBeenCalled();
   });
 
   it('limits requests per authenticated user', async () => {
