@@ -133,6 +133,7 @@ def retrieve_upcoming_events(
     start = max(filters.from_ or now, now)
     projection = {field: 1 for field in EVENT_FIELDS}
     projection["_id"] = 1
+    projection["location"] = 1  # per a l'itinerari (#140); no s'envia a Gemini (_event_context)
     source = collection if collection is not None else _events_collection()
     collation = LOCATION_COLLATION if filters.municipality or filters.comarca else None
     options = {"collation": collation} if collation else {}
@@ -262,15 +263,13 @@ def build_system_instruction(now: datetime | None = None, language_name: str | N
     )
 
 
-def answer_with_events(
+# Filtres del missatge, amb els missatges anteriors de l'usuari com a context. Si Gemini falla, sense filtres.
+def extract_message_filters(
     message: str,
     now: datetime | None = None,
-    client=None,
-    collection=None,
-    filter_extractor=None,
     history: list[dict] | None = None,
-    language_name: str | None = None,
-) -> str:
+    filter_extractor=None,
+) -> EventFilters:
     try:
         previous_user_messages = [
             item["content"][:MAX_HISTORY_MESSAGE_LENGTH]
@@ -287,10 +286,24 @@ def answer_with_events(
                 "Missatge actual (té prioritat):\n"
                 f"{message}"
             )
-        filters = (filter_extractor or extract_filters)(filter_message, now=now)
+        return (filter_extractor or extract_filters)(filter_message, now=now)
     except IntentExtractionError:
         logger.warning("No s'han pogut extreure filtres del missatge; es continua sense filtres")
-        filters = EventFilters()
+        return EventFilters()
+
+
+def answer_with_events(
+    message: str,
+    now: datetime | None = None,
+    client=None,
+    collection=None,
+    filter_extractor=None,
+    history: list[dict] | None = None,
+    language_name: str | None = None,
+    filters: EventFilters | None = None,
+) -> str:
+    if filters is None:
+        filters = extract_message_filters(message, now, history, filter_extractor)
     events, total = retrieve_upcoming_events(now=now, filters=filters, collection=collection)
     if not events and (filters.municipality or filters.comarca):
         requested_place = filters.municipality or filters.comarca
