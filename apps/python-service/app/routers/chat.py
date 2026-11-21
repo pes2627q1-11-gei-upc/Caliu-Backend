@@ -9,7 +9,7 @@ from pymongo.errors import PyMongoError
 
 from app.chatbot.intent import MAX_MESSAGE_LENGTH, IntentExtractionError, extract_filters
 from app.chatbot.language import LANGUAGE_NAMES, detect_conversation_language
-from app.chatbot.rag import answer_with_events
+from app.chatbot.rag import answer_with_events_and_cards
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 logger = logging.getLogger(__name__)
@@ -63,11 +63,15 @@ def chat_messages(body: MessagesRequest):
     try:
         history = [item.model_dump() for item in body.history]
         language = detect_conversation_language(message, history)
-        reply = answer_with_events(message, history=history, language_name=LANGUAGE_NAMES[language])
+        reply, events = answer_with_events_and_cards(
+            message,
+            history=history,
+            language_name=LANGUAGE_NAMES[language],
+        )
     except (APIError, RuntimeError):
         logger.exception("No s'ha pogut generar la resposta del xatbot")
         return JSONResponse(status_code=503, content={"error": "El servei de xatbot no està disponible"})
     except PyMongoError:
         logger.exception("No s'han pogut recuperar esdeveniments per al xatbot")
         return JSONResponse(status_code=503, content={"error": "El servei d'esdeveniments no està disponible"})
-    return {"reply": reply, "language": language}
+    return {"reply": reply, "language": language, "events": events}

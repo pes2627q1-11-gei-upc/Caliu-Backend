@@ -53,9 +53,13 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [sessionId, reply, events]
                 properties:
                   sessionId: { type: string }
                   reply: { type: string }
+                  events:
+                    type: array
+                    items: { $ref: '#/components/schemas/Event' }
         '400':
           description: Missatge o identificador de sessió no vàlid
           content:

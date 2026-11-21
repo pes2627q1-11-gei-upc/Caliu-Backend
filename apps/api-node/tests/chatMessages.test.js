@@ -63,7 +63,10 @@ beforeEach(() => {
     limit: jest.fn().mockReturnThis(),
     lean: jest.fn().mockResolvedValue([]),
   });
-  proxyToPython.mockReset().mockResolvedValue({ reply: 'Et recomano un concert.' });
+  proxyToPython.mockReset().mockResolvedValue({
+    reply: 'Et recomano un concert.',
+    events: [{ id: 'event-1', title: 'Concert de prova' }],
+  });
 });
 
 afterEach(() => jest.restoreAllMocks());
@@ -81,7 +84,11 @@ describe('POST /chat/messages', () => {
 
     expect(res.status).toBe(200);
     expect(res.headers['cache-control']).toBe('no-store');
-    expect(res.body).toEqual({ sessionId: CHAT_SESSION_ID, reply: 'Et recomano un concert.' });
+    expect(res.body).toEqual({
+      sessionId: CHAT_SESSION_ID,
+      reply: 'Et recomano un concert.',
+      events: [{ id: 'event-1', title: 'Concert de prova' }],
+    });
     expect(SessioXatbot.create).toHaveBeenCalledWith({ userId: USER_ID });
     expect(MissatgeXatbot.create).toHaveBeenNthCalledWith(1, {
       sessionId: CHAT_SESSION_ID,
@@ -190,6 +197,33 @@ describe('POST /chat/messages', () => {
     expect(SessioXatbot.create).not.toHaveBeenCalled();
     expect(MissatgeXatbot.create).not.toHaveBeenCalled();
     expect(res.body).toEqual({ error: 'Error intern del servidor' });
+  });
+
+  it('returns an empty events list when Python does not provide events', async () => {
+    proxyToPython.mockResolvedValueOnce({ reply: 'Et recomano un concert.' });
+
+    const res = await auth(request(app).post('/chat/messages').send({ message: 'teatre' }));
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      sessionId: CHAT_SESSION_ID,
+      reply: 'Et recomano un concert.',
+      events: [],
+    });
+    expect(SessioXatbot.create).toHaveBeenCalledWith({ userId: USER_ID });
+    expect(MissatgeXatbot.create).toHaveBeenCalledTimes(2);
+  });
+
+  it('rejects a Python response with an invalid reply', async () => {
+    proxyToPython.mockResolvedValueOnce({ reply: '  ', events: [] });
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    const res = await auth(request(app).post('/chat/messages').send({ message: 'teatre' }));
+
+    expect(res.status).toBe(502);
+    expect(res.body).toEqual({ error: 'Error intern del servidor' });
+    expect(SessioXatbot.create).not.toHaveBeenCalled();
+    expect(MissatgeXatbot.create).not.toHaveBeenCalled();
   });
 
   it('limits requests per authenticated user', async () => {

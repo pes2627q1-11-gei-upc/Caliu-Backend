@@ -54,13 +54,15 @@ def test_filters_endpoint_gemini_down(monkeypatch):
 def test_messages_endpoint_returns_rag_reply(monkeypatch):
     seen = {}
 
+    events = [{"id": "event-1", "title": "Concert"}]
+
     def fake_answer(message, history, language_name):
         seen["message"] = message
         seen["history"] = history
         seen["language_name"] = language_name
-        return "Et recomano un concert."
+        return "Et recomano un concert.", events
 
-    monkeypatch.setattr(chat_router, "answer_with_events", fake_answer)
+    monkeypatch.setattr(chat_router, "answer_with_events_and_cards", fake_answer)
     history = [{"role": "user", "content": "què hi ha avui?"}]
     res = client.post("/chat/messages", json={
         "message": "  i demà?  ",
@@ -68,7 +70,11 @@ def test_messages_endpoint_returns_rag_reply(monkeypatch):
     })
 
     assert res.status_code == 200
-    assert res.json() == {"reply": "Et recomano un concert.", "language": "ca"}
+    assert res.json() == {
+        "reply": "Et recomano un concert.",
+        "language": "ca",
+        "events": events,
+    }
     assert seen == {"message": "i demà?", "history": history, "language_name": "català"}
 
 
@@ -97,7 +103,7 @@ def test_messages_endpoint_returns_service_unavailable_on_gemini_error(monkeypat
     def fail(message, history, language_name):
         raise RuntimeError("model unavailable")
 
-    monkeypatch.setattr(chat_router, "answer_with_events", fail)
+    monkeypatch.setattr(chat_router, "answer_with_events_and_cards", fail)
     res = client.post("/chat/messages", json={"message": "teatre"})
 
     assert res.status_code == 503
@@ -109,7 +115,7 @@ def test_messages_endpoint_returns_service_unavailable_on_mongo_error(monkeypatc
     def fail(message, history, language_name):
         raise PyMongoError("database unavailable")
 
-    monkeypatch.setattr(chat_router, "answer_with_events", fail)
+    monkeypatch.setattr(chat_router, "answer_with_events_and_cards", fail)
     res = client.post("/chat/messages", json={"message": "teatre"})
 
     assert res.status_code == 503

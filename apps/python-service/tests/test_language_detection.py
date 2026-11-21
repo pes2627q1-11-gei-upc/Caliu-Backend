@@ -165,7 +165,11 @@ def test_messages_endpoint_answers_in_detected_language(monkeypatch, message, hi
         seen["language_name"] = language_name
         return "ok"
 
-    monkeypatch.setattr(chat_router, "answer_with_events", fake_answer)
+    monkeypatch.setattr(
+        chat_router,
+        "answer_with_events_and_cards",
+        lambda *args, **kwargs: (fake_answer(*args, **kwargs), []),
+    )
     res = client.post("/chat/messages", json={"message": message, "history": history})
     assert res.status_code == 200
     assert res.json()["language"] == expected
