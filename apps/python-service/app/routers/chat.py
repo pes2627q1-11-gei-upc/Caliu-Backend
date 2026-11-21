@@ -70,5 +70,6 @@ def chat_messages(body: MessagesRequest):
     except PyMongoError:
         logger.exception("No s'han pogut recuperar esdeveniments per al xatbot")
         return JSONResponse(status_code=503, content={"error": "El servei d'esdeveniments no està disponible"})
-    # {"type": "text" | "plan", "reply", "plan"?, "language"}: "plan" és el que mostra el widget d'itinerari.
+    # {"type": "text" | "plan", "reply", "events", "plan"?, "language"}: "events" són les targetes clicables
+    # (#54) i "plan" és el que mostra el widget d'itinerari (#140).
     return {**answer, "language": language}

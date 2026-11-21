@@ -8,7 +8,7 @@ from datetime import datetime, time
 from app.chatbot.intent import TZ
 from app.chatbot.itinerary import build_itinerary
 from app.chatbot.language import DEFAULT_LANGUAGE, LANGUAGE_NAMES
-from app.chatbot.rag import answer_with_events, extract_message_filters, retrieve_upcoming_events
+from app.chatbot.rag import answer_with_events_and_cards, extract_message_filters, retrieve_upcoming_events
 
 # Text que acompanya el pla. Sense una segona crida a Gemini: el pla es pot mostrar encara que falli.
 TEXTS = {
@@ -50,8 +50,9 @@ def plan_reply(steps: list[dict], day: datetime, language: str = DEFAULT_LANGUAG
     return "\n".join([header, *lines])
 
 
-# Resposta del xat: {"type": "plan", "reply", "plan": {"date", "steps"}} si es demana un itinerari,
-# o {"type": "text", "reply"} per a la resta (també si l'itinerari no té cap pas).
+# Resposta del xat: {"type": "plan", "reply", "events": [], "plan": {"date", "steps"}} si es demana un
+# itinerari, o {"type": "text", "reply", "events"} per a la resta (també si l'itinerari no té cap pas).
+# `events` són les targetes clicables dels esdeveniments que esmenta la resposta (#54).
 def answer_chat(
     message: str,
     now: datetime | None = None,
@@ -65,11 +66,11 @@ def answer_chat(
     filters = extract_message_filters(message, now, history, filter_extractor)
     # Una data passada la respon el text normal, que ja explica que ha passat.
     if not filters.itinerary or filters.date_passed:
-        reply = answer_with_events(
+        reply, cards = answer_with_events_and_cards(
             message, now=now, client=client, collection=collection, history=history,
             language_name=LANGUAGE_NAMES.get(language), filters=filters,
         )
-        return {"type": "text", "reply": reply}
+        return {"type": "text", "reply": reply, "events": cards}
 
     # Un itinerari és per a un sol dia: el primer dia demanat, des d'ara si és avui.
     start = max(filters.from_ or now, now).astimezone(TZ)
@@ -80,6 +81,8 @@ def answer_chat(
     )
     steps = build_itinerary(events, start, until=until) if until > start else []
     reply = plan_reply(steps, start, language)
+    # Sense targetes (#54): els passos del pla ja porten l'id i les dades de cada esdeveniment.
     if not steps:
-        return {"type": "text", "reply": reply}
-    return {"type": "plan", "reply": reply, "plan": {"date": start.date().isoformat(), "steps": steps}}
+        return {"type": "text", "reply": reply, "events": []}
+    return {"type": "plan", "reply": reply, "events": [],
+            "plan": {"date": start.date().isoformat(), "steps": steps}}
