@@ -163,6 +163,7 @@ describe('proxy Node → Python', () => {
       status: 503,
       message: 'El servei de xatbot no està disponible',
       errorCode: 'CHATBOT_UNAVAILABLE',
+      cause: expect.objectContaining({ message: 'connection refused' }), // només als logs
     });
 
     fetchMock.mockRejectedValue(new DOMException('Timed out', 'TimeoutError'));
@@ -239,6 +240,7 @@ describe('proxy Node → Python', () => {
       status: 502,
       message: 'El servei de xatbot ha fallat',
       errorCode: 'CHATBOT_ERROR',
+      cause: { pythonStatus: status }, // l'estat de Python queda als logs; el cos, enlloc
     });
   });
 });

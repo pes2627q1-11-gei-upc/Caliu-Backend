@@ -34,4 +34,26 @@ describe('#143 errorHandler', () => {
     expect(send(httpError(404, 'No trobat', 'SESSION_NOT_FOUND')))
       .toEqual({ status: 404, body: { error: 'No trobat', code: 'SESSION_NOT_FOUND' } });
   });
+
+  it('registra als logs l\'estat, el codi i la causa, sense cap missatge intern (revisió del #50)', () => {
+    const refused = Object.assign(new TypeError('fetch failed mongodb://usuari:clau@host'), {
+      cause: Object.assign(new Error('connect ECONNREFUSED 10.0.0.1'), { code: 'ECONNREFUSED' }),
+    });
+    send(httpError(503, 'El servei de xatbot no està disponible', 'CHATBOT_UNAVAILABLE', refused));
+    send(httpError(502, 'El servei de xatbot ha fallat', 'CHATBOT_ERROR', { pythonStatus: 404 }));
+    send(new Error('mongodb://usuari:clau@host'));
+
+    const logged = console.error.mock.calls.map((call) => call.join(' '));
+    expect(logged).toEqual([
+      'Error intern de l’API {"status":503,"code":"CHATBOT_UNAVAILABLE","cause":"TypeError (ECONNREFUSED)"}',
+      'Error intern de l’API {"status":502,"code":"CHATBOT_ERROR","cause":"Python 404"}',
+      'Error intern de l’API {"status":500,"code":null,"cause":null}',
+    ]);
+    expect(logged.join(' ')).not.toMatch(/clau|10\.0\.0\.1|mongodb/);
+  });
+
+  it('no exposa el missatge d\'un error d\'una altra llibreria encara que tingui errorCode de text', () => {
+    const foreign = Object.assign(new Error('detall intern de la llibreria'), { status: 502, errorCode: 'UPSTREAM_X' });
+    expect(send(foreign)).toEqual({ status: 502, body: { error: 'Error intern del servidor' } });
+  });
 });
