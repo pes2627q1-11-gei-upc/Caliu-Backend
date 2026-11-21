@@ -86,6 +86,7 @@ describe('POST /chat/messages', () => {
     expect(res.headers['cache-control']).toBe('no-store');
     expect(res.body).toEqual({
       sessionId: CHAT_SESSION_ID,
+      type: 'text',
       reply: 'Et recomano un concert.',
       events: [{ id: 'event-1', title: 'Concert de prova' }],
       filters: null,
@@ -106,6 +107,38 @@ describe('POST /chat/messages', () => {
       role: 'assistant',
       content: 'Et recomano un concert.',
     });
+  });
+
+  it('returns the plan of an itinerary and stores its text in the history (#140)', async () => {
+    const plan = {
+      date: '2026-11-21',
+      steps: [{ order: 1, id: 'a', title: 'Visita guiada al Call', start: '2026-11-21T10:30:00+01:00' }],
+    };
+    proxyToPython.mockResolvedValueOnce({ type: 'plan', reply: 'Aquí tens un itinerari…', plan, language: 'ca' });
+
+    const res = await auth(request(app).post('/chat/messages').send({ message: 'fes-me un itinerari' }));
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      sessionId: CHAT_SESSION_ID, type: 'plan', reply: 'Aquí tens un itinerari…', events: [], filters: null, plan,
+    });
+    expect(MissatgeXatbot.create).toHaveBeenNthCalledWith(2, {
+      sessionId: CHAT_SESSION_ID,
+      role: 'assistant',
+      content: 'Aquí tens un itinerari…',
+    });
+  });
+
+  it.each([
+    { type: 'plan', reply: 'Text', plan: { steps: [] } },
+    { type: 'plan', reply: 'Text', plan: { steps: 'no' } },
+    { type: 'plan', reply: 'Text' },
+    { type: 'altre', reply: 'Text', plan: { steps: [{ order: 1 }] } },
+  ])('treats an invalid plan as a text answer %#', async (result) => {
+    proxyToPython.mockResolvedValueOnce(result);
+    const res = await auth(request(app).post('/chat/messages').send({ message: 'itinerari' }));
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ sessionId: CHAT_SESSION_ID, type: 'text', reply: 'Text', events: [], filters: null });
   });
 
   it('uses an existing session only when it belongs to the authenticated user', async () => {
@@ -210,6 +243,7 @@ describe('POST /chat/messages', () => {
     expect(res.status).toBe(200);
     expect(res.body).toEqual({
       sessionId: CHAT_SESSION_ID,
+      type: 'text',
       reply: 'Et recomano un concert.',
       events: [],
       filters: null,

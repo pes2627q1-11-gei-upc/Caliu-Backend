@@ -138,6 +138,7 @@ def retrieve_upcoming_events(
     if query is None:
         return [], 0
     start = max(filters.from_ or now, now)
+    # `location` (a EVENT_CARD_FIELDS) també el fa servir l'itinerari (#140); no s'envia a Gemini.
     projection = {field: 1 for field in (*EVENT_FIELDS, *EVENT_CARD_FIELDS)}
     projection["_id"] = 1
     source = collection if collection is not None else _events_collection()
@@ -286,12 +287,11 @@ def build_system_instruction(now: datetime | None = None, language_name: str | N
     )
 
 
-# Filtres interpretats del missatge, amb els missatges anteriors de l'usuari com a context. Si Gemini falla,
-# es continua sense filtres. El router els fa servir per a la resposta i per retornar-los a l'app (#138).
-def extract_chat_filters(
+# Filtres del missatge, amb els missatges anteriors de l'usuari com a context. Si Gemini falla, sense filtres.
+def extract_message_filters(
     message: str,
-    history: list[dict] | None = None,
     now: datetime | None = None,
+    history: list[dict] | None = None,
     filter_extractor=None,
 ) -> EventFilters:
     try:
@@ -316,6 +316,36 @@ def extract_chat_filters(
         return EventFilters()
 
 
+# Targetes clicables (#54): esdeveniments del context que la resposta esmenta pel títol, com a molt
+# MAX_RECOMMENDED_EVENTS, amb les dades que necessita el frontend.
+def _event_cards(reply, events: list[dict]) -> list[dict]:
+    normalized_reply = _normalize_text(reply) if isinstance(reply, str) else ""
+    cards = []
+    for event in events:
+        title = event.get("title")
+        if not isinstance(title, str) or not title.strip():
+            continue
+        normalized_title = _normalize_text(title)
+        if not normalized_reply or not re.search(
+            rf"(?<!\w){re.escape(normalized_title)}(?!\w)",
+            normalized_reply,
+        ):
+            continue
+
+        card = {
+            "id": str(event["_id"]),
+            **{field: event[field] for field in (*EVENT_FIELDS, *EVENT_CARD_FIELDS) if field in event},
+        }
+        for field in ("startDate", "endDate"):
+            if field in card:
+                card[field] = _api_datetime(card[field])
+        cards.append(card)
+        if len(cards) == MAX_RECOMMENDED_EVENTS:
+            break
+    return cards
+
+
+# Resposta de text i targetes. `filters` permet reaprofitar uns filtres ja extrets (#140); si no, s'extreuen.
 def answer_with_events_and_cards(
     message: str,
     now: datetime | None = None,
@@ -326,9 +356,8 @@ def answer_with_events_and_cards(
     language_name: str | None = None,
     filters: EventFilters | None = None,
 ) -> tuple[str, list[dict]]:
-    # `filters` permet reaprofitar els que ja ha extret el router; si no es donen, s'extreuen aquí.
     if filters is None:
-        filters = extract_chat_filters(message, history=history, now=now, filter_extractor=filter_extractor)
+        filters = extract_message_filters(message, now, history, filter_extractor)
     events, total = retrieve_upcoming_events(now=now, filters=filters, collection=collection)
     if not events and (filters.municipality or filters.comarca):
         requested_place = filters.municipality or filters.comarca
@@ -366,30 +395,7 @@ def answer_with_events_and_cards(
         temperature=0.25,
         max_output_tokens=2048,
     )
-    normalized_reply = _normalize_text(reply) if isinstance(reply, str) else ""
-    cards = []
-    for event in events:
-        title = event.get("title")
-        if not isinstance(title, str) or not title.strip():
-            continue
-        normalized_title = _normalize_text(title)
-        if not normalized_reply or not re.search(
-            rf"(?<!\w){re.escape(normalized_title)}(?!\w)",
-            normalized_reply,
-        ):
-            continue
-
-        card = {
-            "id": str(event["_id"]),
-            **{field: event[field] for field in (*EVENT_FIELDS, *EVENT_CARD_FIELDS) if field in event},
-        }
-        for field in ("startDate", "endDate"):
-            if field in card:
-                card[field] = _api_datetime(card[field])
-        cards.append(card)
-        if len(cards) == MAX_RECOMMENDED_EVENTS:
-            break
-    return reply, cards
+    return reply, _event_cards(reply, events)
 
 
 def answer_with_events(
@@ -400,6 +406,7 @@ def answer_with_events(
     filter_extractor=None,
     history: list[dict] | None = None,
     language_name: str | None = None,
+    filters: EventFilters | None = None,
 ) -> str:
     reply, _ = answer_with_events_and_cards(
         message,
@@ -409,5 +416,6 @@ def answer_with_events(
         filter_extractor=filter_extractor,
         history=history,
         language_name=language_name,
+        filters=filters,
     )
     return reply

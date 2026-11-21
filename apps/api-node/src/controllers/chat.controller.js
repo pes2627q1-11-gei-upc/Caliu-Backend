@@ -89,11 +89,15 @@ export async function postChatMessage(req, res, next) {
       content: result.reply,
     });
 
+    // "plan" (#140): itinerari de passos per al widget de l'app. Si no és vàlid, es respon com a text.
+    const isPlan = result.type === 'plan' && Array.isArray(result.plan?.steps) && result.plan.steps.length > 0;
     return res.status(200).json({
       sessionId: String(chatSession._id),
+      type: isPlan ? 'plan' : 'text',
       reply: result.reply,
       events,
       filters,
+      ...(isPlan ? { plan: result.plan } : {}),
     });
   } catch (err) {
     return next(err);
