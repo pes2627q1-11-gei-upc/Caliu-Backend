@@ -106,6 +106,30 @@ def test_messages_endpoint_returns_interpreted_filters(monkeypatch):
     assert seen == ["què fer amb nens a la tarda gratis"]
 
 
+def test_messages_endpoint_returns_null_filters_when_extraction_fails(monkeypatch):
+    # answer_chat real: l'extractor falla i continua sense filtres; només se'n substitueix la resposta
+    # (Gemini + Mongo) perquè el test no surti a la xarxa.
+    import app.chatbot.plan as plan
+
+    seen = {}
+
+    def boom(text, now=None):
+        raise IntentExtractionError("Gemini no disponible")
+
+    def fake_text_answer(message, **kwargs):
+        seen["filters"] = kwargs["filters"]
+        return "Et recomano un concert.", []
+
+    monkeypatch.setattr(chat_router, "extract_filters", boom)
+    monkeypatch.setattr(plan, "answer_with_events_and_cards", fake_text_answer)
+    res = client.post("/chat/messages", json={"message": "concerts a Girona"})
+
+    assert res.status_code == 200
+    assert res.json()["type"] == "text"
+    assert res.json()["filters"] is None
+    assert seen["filters"].is_empty()
+
+
 def test_messages_endpoint_without_interpreted_filters_returns_null(monkeypatch):
     def fake_answer(message, history, language, filter_extractor=None):
         filter_extractor(message, now=NOW)
