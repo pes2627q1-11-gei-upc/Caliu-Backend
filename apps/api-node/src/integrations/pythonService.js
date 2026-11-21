@@ -39,6 +39,13 @@ function pythonUrl(path) {
   return url.toString();
 }
 
+// Codis que Python pot retornar amb un 503 (#142). Només s'accepten aquests i el missatge el posa Node:
+// el cos de la resposta de Python mai no arriba a l'app.
+const PYTHON_UNAVAILABLE = {
+  CHATBOT_UNAVAILABLE: 'El servei de xatbot no està disponible',
+  EVENTS_UNAVAILABLE: 'El servei d\'esdeveniments no està disponible',
+};
+
 export async function proxyToPython({ path, method = 'POST', token, body } = {}) {
   // La crida ha d'anar darrere de requireAuth, que també comprova l'usuari i la sessió a MongoDB.
   verifyAccessToken(token);
@@ -58,8 +65,11 @@ export async function proxyToPython({ path, method = 'POST', token, body } = {})
       signal: AbortSignal.timeout(timeout),
     });
     text = await response.text();
-  } catch {
-    throw httpError(502, 'El servei de xatbot no està disponible');
+  } catch (err) {
+    if (err?.name === 'TimeoutError') {
+      throw httpError(504, 'El servei de xatbot ha tardat massa a respondre', 'CHATBOT_TIMEOUT');
+    }
+    throw httpError(503, 'El servei de xatbot no està disponible', 'CHATBOT_UNAVAILABLE');
   }
 
   let payload = null;
@@ -67,14 +77,16 @@ export async function proxyToPython({ path, method = 'POST', token, body } = {})
     try {
       payload = JSON.parse(text);
     } catch {
-      throw httpError(502, 'El servei de xatbot ha fallat');
+      throw httpError(502, 'El servei de xatbot ha fallat', 'CHATBOT_ERROR');
     }
   }
   if (!response.ok) {
-    const status = response.status >= 400 && response.status < 500 && response.status !== 422
-      ? response.status
-      : 502;
-    throw httpError(status, status === 401 ? 'Sessió no vàlida' : 'El servei de xatbot ha fallat');
+    // Només es mantenen els casos explícits del contracte (OpenAPI, #143): 401 i els 503 amb codi conegut.
+    // Qualsevol altre error de Python (400, 404, 422, 500…) és inesperat per a l'app: 502 CHATBOT_ERROR.
+    const unavailable = response.status === 503 && Object.hasOwn(PYTHON_UNAVAILABLE, payload?.code);
+    if (unavailable) throw httpError(503, PYTHON_UNAVAILABLE[payload.code], payload.code);
+    if (response.status === 401) throw httpError(401, 'Sessió no vàlida');
+    throw httpError(502, 'El servei de xatbot ha fallat', 'CHATBOT_ERROR');
   }
   return payload;
 }
