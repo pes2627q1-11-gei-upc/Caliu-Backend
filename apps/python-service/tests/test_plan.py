@@ -220,10 +220,12 @@ def test_unknown_language_falls_back_to_catalan_and_steps_without_place():
 def test_messages_endpoint_returns_the_plan_and_language(monkeypatch):
     plan = {"date": "2026-11-21", "steps": [{"order": 1, "title": "Visita guiada al Call"}]}
 
-    def fake_answer(message, history, language):
+    def fake_answer(message, history, language, filter_extractor=None):
         return {"type": "plan", "reply": "Aquí tienes un itinerario…", "plan": plan}
 
     monkeypatch.setattr(chat_router, "answer_chat", fake_answer)
     res = TestClient(app).post("/chat/messages", json={"message": "hazme un itinerario para hoy"})
     assert res.status_code == 200
-    assert res.json() == {"type": "plan", "reply": "Aquí tienes un itinerario…", "plan": plan, "language": "es"}
+    assert res.json() == {
+        "type": "plan", "reply": "Aquí tienes un itinerario…", "plan": plan, "filters": None, "language": "es",
+    }
