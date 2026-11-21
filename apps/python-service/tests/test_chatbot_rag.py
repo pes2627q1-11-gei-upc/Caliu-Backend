@@ -709,6 +709,53 @@ def test_answer_returns_clickable_event_cards_in_api_shape(monkeypatch):
     assert collection.find_args[0][1]["location"] == 1
 
 
+def test_answer_returns_only_mentioned_events_and_at_most_three(monkeypatch):
+    monkeypatch.setenv("APP_ENV", "development")
+    events = [
+        event("No esmentat", NOW + timedelta(hours=1), NOW + timedelta(hours=2)),
+        event("Jazz al cafè", NOW + timedelta(hours=2), NOW + timedelta(hours=3)),
+        event("Música clàssica", NOW + timedelta(hours=3), NOW + timedelta(hours=4)),
+        event("Concert de tarda", NOW + timedelta(hours=4), NOW + timedelta(hours=5)),
+        event("Mercat de llibres", NOW + timedelta(hours=5), NOW + timedelta(hours=6)),
+    ]
+    collection = FakeCollection(events)
+
+    _, cards = answer_with_events_and_cards(
+        "Què puc fer avui?",
+        now=NOW,
+        client=SimpleNamespace(
+            generate=lambda *_args, **_kwargs: (
+                "Et recomano Jazz al cafè, musica classica, Concert de tarda i Mercat de llibres."
+            ),
+        ),
+        collection=collection,
+        filter_extractor=lambda message, now: EventFilters(),
+    )
+
+    assert [card["title"] for card in cards] == [
+        "Jazz al cafè",
+        "Música clàssica",
+        "Concert de tarda",
+    ]
+
+
+def test_answer_returns_no_cards_when_reply_does_not_name_events(monkeypatch):
+    monkeypatch.setenv("APP_ENV", "development")
+    collection = FakeCollection([
+        event("Jazz al cafè", NOW + timedelta(hours=1), NOW + timedelta(hours=2)),
+    ])
+
+    _, cards = answer_with_events_and_cards(
+        "Què puc fer avui?",
+        now=NOW,
+        client=SimpleNamespace(generate=lambda *_args, **_kwargs: "Només puc ajudar a descobrir esdeveniments."),
+        collection=collection,
+        filter_extractor=lambda message, now: EventFilters(),
+    )
+
+    assert cards == []
+
+
 def test_prompt_explains_empty_context_and_response_rules():
     collection = FakeCollection([])
     captured = {}

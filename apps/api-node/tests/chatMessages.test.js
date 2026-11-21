@@ -199,8 +199,23 @@ describe('POST /chat/messages', () => {
     expect(res.body).toEqual({ error: 'Error intern del servidor' });
   });
 
-  it('rejects a malformed Python response that does not contain events', async () => {
+  it('returns an empty events list when Python does not provide events', async () => {
     proxyToPython.mockResolvedValueOnce({ reply: 'Et recomano un concert.' });
+
+    const res = await auth(request(app).post('/chat/messages').send({ message: 'teatre' }));
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      sessionId: CHAT_SESSION_ID,
+      reply: 'Et recomano un concert.',
+      events: [],
+    });
+    expect(SessioXatbot.create).toHaveBeenCalledWith({ userId: USER_ID });
+    expect(MissatgeXatbot.create).toHaveBeenCalledTimes(2);
+  });
+
+  it('rejects a Python response with an invalid reply', async () => {
+    proxyToPython.mockResolvedValueOnce({ reply: '  ', events: [] });
     jest.spyOn(console, 'error').mockImplementation(() => {});
 
     const res = await auth(request(app).post('/chat/messages').send({ message: 'teatre' }));

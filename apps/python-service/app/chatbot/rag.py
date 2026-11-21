@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import re
+import unicodedata
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from zoneinfo import ZoneInfo
@@ -15,6 +16,7 @@ from app.chatbot.intent import EventFilters, IntentExtractionError, WEEKDAYS_CA,
 
 EVENTS_COLLECTION = "esdeveniments"
 MAX_CONTEXT_EVENTS = 20
+MAX_RECOMMENDED_EVENTS = 3
 MAX_DESCRIPTION_LENGTH = 400
 UPCOMING_DAYS = 7
 MAX_SLOT_DAYS = 31
@@ -57,9 +59,6 @@ EVENT_CARD_FIELDS = (
     "code",
     "location",
     "images",
-    "email",
-    "phone",
-    "source",
 )
 MAX_HISTORY_MESSAGE_LENGTH = 1000
 
@@ -222,6 +221,14 @@ def _api_datetime(value):
     return value.astimezone(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
+def _normalize_text(value: str) -> str:
+    folded = "".join(
+        char for char in unicodedata.normalize("NFD", value.casefold())
+        if unicodedata.category(char) != "Mn"
+    )
+    return re.sub(r"\s+", " ", folded).strip()
+
+
 def _event_context(events: list[dict], total: int) -> str:
     records = []
     for event in events:
@@ -262,7 +269,8 @@ def build_system_instruction(now: datetime | None = None, language_name: str | N
         "Ets l'assistent de Caliu, una aplicació per descobrir activitats culturals a Catalunya. "
         f"Respon de manera propera i breu, en la llengua de l'usuari.{language_rule}\n"
         f"Avui és {today} i són les {local_now.strftime('%H:%M')} (hora de Catalunya).\n"
-        "Recomana com a màxim tres esdeveniments. Escriu text pla amb l'activitat, la data, "
+        "Recomana com a màxim tres esdeveniments. Quan en recomanis un, copia'n el títol "
+        "exactament com apareix al context. Escriu text pla amb l'activitat, la data, "
         "l'hora i el lloc quan constin, i inclou l'enllaç si està disponible. "
         "El preu «Gratuït» indica que price és 0; «Desconegut» vol dir que no hi ha informació "
         "de preu.\n"
@@ -344,8 +352,19 @@ def answer_with_events_and_cards(
         temperature=0.25,
         max_output_tokens=2048,
     )
+    normalized_reply = _normalize_text(reply) if isinstance(reply, str) else ""
     cards = []
     for event in events:
+        title = event.get("title")
+        if not isinstance(title, str) or not title.strip():
+            continue
+        normalized_title = _normalize_text(title)
+        if not normalized_reply or not re.search(
+            rf"(?<!\w){re.escape(normalized_title)}(?!\w)",
+            normalized_reply,
+        ):
+            continue
+
         card = {
             "id": str(event["_id"]),
             **{field: event[field] for field in (*EVENT_FIELDS, *EVENT_CARD_FIELDS) if field in event},
@@ -354,6 +373,8 @@ def answer_with_events_and_cards(
             if field in card:
                 card[field] = _api_datetime(card[field])
         cards.append(card)
+        if len(cards) == MAX_RECOMMENDED_EVENTS:
+            break
     return reply, cards
 
 
