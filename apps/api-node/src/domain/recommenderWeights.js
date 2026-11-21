@@ -36,3 +36,15 @@ export function validateWeights(input, current = DEFAULT_WEIGHTS) {
   }
   return weights;
 }
+
+// Arguments del script d'administració (#127): ["proximity=3", "favoriteTags=1.5"] -> { proximity: 3, ... }.
+// Només converteix el format; la validació dels valors és la de validateWeights.
+export function parseWeightArgs(args) {
+  return Object.fromEntries(args.map((arg) => {
+    const separator = arg.indexOf('=');
+    if (separator < 1) throw httpError(400, `Argument no vàlid: "${arg}" (format: pes=valor)`);
+    const value = arg.slice(separator + 1).trim();
+    // Number('') és 0: un valor buit s'ha de rebutjar, no acceptar com a 0.
+    return [arg.slice(0, separator).trim(), value === '' ? Number.NaN : Number(value)];
+  }));
+}
