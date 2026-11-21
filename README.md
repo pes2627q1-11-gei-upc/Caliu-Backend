@@ -20,6 +20,7 @@ API i serveis de **Caliu**: descoberta d’esdeveniments culturals a Catalunya (
   <a href="docs/sprint-1.md"><b>Sprint 1</b></a> ·
   <a href="docs/openapi.yaml"><b>OpenAPI</b></a> ·
   <a href="docs/arquitectura.md"><b>Arquitectura</b></a> ·
+  <a href="docs/recomanador.md"><b>Recomanador</b></a> ·
   <a href="CONTRIBUTING.md"><b>Contribuir</b></a> ·
   <a href="https://github.com/pes2627q1-11-gei-upc/Caliu-FrontEnd"><b>FrontEnd</b></a>
 </p>
