@@ -63,26 +63,34 @@ export async function postChatMessage(req, res, next) {
       return next(Object.assign(new Error('Resposta del servei de xatbot no vàlida'), { status: 502 }));
     }
 
-    if (!chatSession) {
+    // "fallback" (#142): Gemini no ha respost i Python dona una resposta alternativa. No es desa a
+    // l'historial: si l'usuari torna a enviar el missatge, no queda duplicat. Si era una conversa nova,
+    // tampoc es crea la sessió (no quedaria buida a l'historial de converses) i sessionId és null.
+    const isFallback = result.type === 'fallback';
+    if (!chatSession && !isFallback) {
       chatSession = await SessioXatbot.create({ userId: req.user._id });
     }
-
-    await MissatgeXatbot.create({
-      sessionId: chatSession._id,
-      role: 'user',
-      content: validated.message,
-    });
-    await MissatgeXatbot.create({
-      sessionId: chatSession._id,
-      role: 'assistant',
-      content: result.reply,
-    });
+    if (!isFallback) {
+      await MissatgeXatbot.create({
+        sessionId: chatSession._id,
+        role: 'user',
+        content: validated.message,
+      });
+      await MissatgeXatbot.create({
+        sessionId: chatSession._id,
+        role: 'assistant',
+        content: result.reply,
+      });
+    }
 
     // "plan" (#140): itinerari de passos per al widget de l'app. Si no és vàlid, es respon com a text.
     const isPlan = result.type === 'plan' && Array.isArray(result.plan?.steps) && result.plan.steps.length > 0;
+    let type = 'text';
+    if (isPlan) type = 'plan';
+    else if (isFallback) type = 'fallback';
     return res.status(200).json({
-      sessionId: String(chatSession._id),
-      type: isPlan ? 'plan' : 'text',
+      sessionId: chatSession ? String(chatSession._id) : null,
+      type,
       reply: result.reply,
       ...(isPlan ? { plan: result.plan } : {}),
     });

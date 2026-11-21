@@ -2,13 +2,22 @@
 # passos encadenats (build_itinerary, #139) que l'app mostra amb un widget dins del xat. La resta de
 # missatges continuen sent una resposta de text de Gemini.
 
+import logging
 from dataclasses import replace
 from datetime import datetime, time
 
+from app.chatbot.fallback import fallback_reply
 from app.chatbot.intent import TZ
 from app.chatbot.itinerary import build_itinerary
 from app.chatbot.language import DEFAULT_LANGUAGE, LANGUAGE_NAMES
-from app.chatbot.rag import answer_with_events, extract_message_filters, retrieve_upcoming_events
+from app.chatbot.rag import (
+    AnswerUnavailableError,
+    answer_with_events,
+    extract_message_filters,
+    retrieve_upcoming_events,
+)
+
+logger = logging.getLogger(__name__)
 
 # Text que acompanya el pla. Sense una segona crida a Gemini: el pla es pot mostrar encara que falli.
 TEXTS = {
@@ -51,7 +60,8 @@ def plan_reply(steps: list[dict], day: datetime, language: str = DEFAULT_LANGUAG
 
 
 # Resposta del xat: {"type": "plan", "reply", "plan": {"date", "steps"}} si es demana un itinerari,
-# o {"type": "text", "reply"} per a la resta (també si l'itinerari no té cap pas).
+# {"type": "text", "reply"} per a la resta (també si l'itinerari no té cap pas), o {"type": "fallback",
+# "reply"} si Gemini no ha pogut respondre després dels reintents (#142).
 def answer_chat(
     message: str,
     now: datetime | None = None,
@@ -65,10 +75,16 @@ def answer_chat(
     filters = extract_message_filters(message, now, history, filter_extractor)
     # Una data passada la respon el text normal, que ja explica que ha passat.
     if not filters.itinerary or filters.date_passed:
-        reply = answer_with_events(
-            message, now=now, client=client, collection=collection, history=history,
-            language_name=LANGUAGE_NAMES.get(language), filters=filters,
-        )
+        try:
+            reply = answer_with_events(
+                message, now=now, client=client, collection=collection, history=history,
+                language_name=LANGUAGE_NAMES.get(language), filters=filters,
+            )
+        except AnswerUnavailableError as exc:
+            # Reintents esgotats, error de connexió o resposta sense text. Els errors de Mongo i de
+            # configuració (p. ex. sense GEMINI_API_KEY) es propaguen i donen un 503.
+            logger.exception("Gemini no ha pogut respondre; es retorna la resposta alternativa")
+            return {"type": "fallback", "reply": fallback_reply(exc.events, exc.alternatives, now, language)}
         return {"type": "text", "reply": reply}
 
     # Un itinerari és per a un sol dia: el primer dia demanat, des d'ara si és avui.

@@ -66,9 +66,16 @@ def chat_messages(body: MessagesRequest):
         answer = answer_chat(message, history=history, language=language)
     except (APIError, RuntimeError):
         logger.exception("No s'ha pogut generar la resposta del xatbot")
-        return JSONResponse(status_code=503, content={"error": "El servei de xatbot no està disponible"})
+        return JSONResponse(
+            status_code=503,
+            content={"error": "El servei de xatbot no està disponible", "code": "CHATBOT_UNAVAILABLE"},
+        )
     except PyMongoError:
         logger.exception("No s'han pogut recuperar esdeveniments per al xatbot")
-        return JSONResponse(status_code=503, content={"error": "El servei d'esdeveniments no està disponible"})
-    # {"type": "text" | "plan", "reply", "plan"?, "language"}: "plan" és el que mostra el widget d'itinerari.
+        return JSONResponse(
+            status_code=503,
+            content={"error": "El servei d'esdeveniments no està disponible", "code": "EVENTS_UNAVAILABLE"},
+        )
+    # {"type": "text" | "plan" | "fallback", "reply", "plan"?, "language"}: "plan" és el que mostra el widget
+    # d'itinerari; "fallback" és la resposta alternativa quan Gemini no ha respost (#142).
     return {**answer, "language": language}

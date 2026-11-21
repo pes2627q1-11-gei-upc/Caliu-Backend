@@ -130,6 +130,28 @@ describe('POST /chat/messages', () => {
     expect(res.body).toEqual({ sessionId: CHAT_SESSION_ID, type: 'text', reply: 'Text' });
   });
 
+  it('returns the fallback answer without storing it, so the message can be sent again (#142)', async () => {
+    proxyToPython.mockResolvedValueOnce({ type: 'fallback', reply: 'Ara mateix no puc respondre…', language: 'ca' });
+
+    const res = await auth(request(app).post('/chat/messages').send({ message: 'plans per avui?' }));
+
+    expect(res.status).toBe(200);
+    // Conversa nova: no es crea cap sessió buida.
+    expect(res.body).toEqual({ sessionId: null, type: 'fallback', reply: 'Ara mateix no puc respondre…' });
+    expect(SessioXatbot.create).not.toHaveBeenCalled();
+    expect(MissatgeXatbot.create).not.toHaveBeenCalled();
+  });
+
+  it('keeps the existing session on a fallback answer', async () => {
+    proxyToPython.mockResolvedValueOnce({ type: 'fallback', reply: 'Ara mateix no puc respondre…' });
+
+    const res = await auth(request(app).post('/chat/messages').send({ message: 'i demà?', sessionId: CHAT_SESSION_ID }));
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ sessionId: CHAT_SESSION_ID, type: 'fallback', reply: 'Ara mateix no puc respondre…' });
+    expect(MissatgeXatbot.create).not.toHaveBeenCalled();
+  });
+
   it('uses an existing session only when it belongs to the authenticated user', async () => {
     const res = await auth(request(app).post('/chat/messages').send({
       message: 'teatre',

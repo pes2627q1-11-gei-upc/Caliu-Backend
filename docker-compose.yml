@@ -42,6 +42,8 @@ services:
       APP_ENV: ${APP_ENV:-production}
       GEMINI_API_KEY: ${GEMINI_API_KEY}
       GEMINI_MODEL: ${GEMINI_MODEL:-}
+      GEMINI_TIMEOUT_MS: ${GEMINI_TIMEOUT_MS:-}
+      GEMINI_RETRIES: ${GEMINI_RETRIES:-}
     # Servei intern sense autenticació pròpia: no publicar el port ni eliminar
     # l'aïllament de xarxa; només api-node hi ha d'accedir.
     expose:
