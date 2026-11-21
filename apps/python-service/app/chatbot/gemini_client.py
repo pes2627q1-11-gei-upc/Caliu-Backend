@@ -9,7 +9,8 @@ from google.genai.errors import APIError
 
 from app.chatbot.config import DEFAULT_MODEL, gemini_retries, gemini_timeout_ms, get_gemini_api_key
 
-# Errors temporals de Gemini que val la pena reintentar (#142): saturació, quota per minut i temps esgotat.
+# Errors temporals de Gemini que val la pena reintentar (#142): saturació, quota per minut, temps esgotat
+# i errors de connexió (httpx.TransportError inclou ConnectError, ReadError i els temps esgotats).
 RETRYABLE_STATUS = {408, 429, 500, 502, 503, 504}
 RETRY_DELAY_S = 0.5
 logger = logging.getLogger(__name__)
@@ -20,8 +21,14 @@ class GeminiUnavailableError(RuntimeError):
     pass
 
 
+# Gemini ha respost però sense text útil (truncat o buit): també es dona la resposta alternativa.
+# És diferent d'un error de configuració (p. ex. sense GEMINI_API_KEY), que ha de donar un 503.
+class GeminiResponseError(RuntimeError):
+    pass
+
+
 def _is_retryable(exc: Exception) -> bool:
-    if isinstance(exc, httpx.TimeoutException):
+    if isinstance(exc, httpx.TransportError):
         return True
     return isinstance(exc, APIError) and getattr(exc, "code", None) in RETRYABLE_STATUS
 
@@ -61,13 +68,13 @@ class GeminiClient:
         if candidates:
             finish_reason = getattr(candidates[0], "finish_reason", None)
             if getattr(finish_reason, "name", None) == "MAX_TOKENS":
-                raise RuntimeError("Gemini ha truncat la resposta per límit de tokens")
+                raise GeminiResponseError("Gemini ha truncat la resposta per límit de tokens")
         text = getattr(response, "text", None)
         if not text or not str(text).strip():
             if finish_reason is not None:
                 reason = getattr(finish_reason, "name", str(finish_reason))
-                raise RuntimeError(f"Gemini no ha retornat text (motiu: {reason})")
-            raise RuntimeError("Gemini no ha retornat text")
+                raise GeminiResponseError(f"Gemini no ha retornat text (motiu: {reason})")
+            raise GeminiResponseError("Gemini no ha retornat text")
         return str(text)
 
     def _generate_with_retries(self, contents: str, config: dict):

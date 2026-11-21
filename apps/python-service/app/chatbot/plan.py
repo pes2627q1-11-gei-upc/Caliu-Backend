@@ -6,13 +6,16 @@ import logging
 from dataclasses import replace
 from datetime import datetime, time
 
-from google.genai.errors import APIError
-
 from app.chatbot.fallback import fallback_reply
 from app.chatbot.intent import TZ
 from app.chatbot.itinerary import build_itinerary
 from app.chatbot.language import DEFAULT_LANGUAGE, LANGUAGE_NAMES
-from app.chatbot.rag import answer_with_events, extract_message_filters, retrieve_upcoming_events, select_events
+from app.chatbot.rag import (
+    AnswerUnavailableError,
+    answer_with_events,
+    extract_message_filters,
+    retrieve_upcoming_events,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -77,11 +80,11 @@ def answer_chat(
                 message, now=now, client=client, collection=collection, history=history,
                 language_name=LANGUAGE_NAMES.get(language), filters=filters,
             )
-        except (APIError, RuntimeError):
-            # Inclou GeminiUnavailableError (reintents esgotats). Els errors de Mongo es propaguen (503).
+        except AnswerUnavailableError as exc:
+            # Reintents esgotats, error de connexió o resposta sense text. Els errors de Mongo i de
+            # configuració (p. ex. sense GEMINI_API_KEY) es propaguen i donen un 503.
             logger.exception("Gemini no ha pogut respondre; es retorna la resposta alternativa")
-            events, _, alternatives = select_events(now, filters, collection)
-            return {"type": "fallback", "reply": fallback_reply(events, alternatives, now, language)}
+            return {"type": "fallback", "reply": fallback_reply(exc.events, exc.alternatives, now, language)}
         return {"type": "text", "reply": reply}
 
     # Un itinerari és per a un sol dia: el primer dia demanat, des d'ara si és avui.

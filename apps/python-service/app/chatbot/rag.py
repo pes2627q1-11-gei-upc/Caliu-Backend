@@ -6,11 +6,12 @@ from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from zoneinfo import ZoneInfo
 
+from google.genai.errors import APIError
 from pymongo import MongoClient
 from pymongo.collation import Collation
 
 from app.chatbot.catalog import AUDIENCE_TAGS, TIME_OF_DAY, TIMEZONE
-from app.chatbot.gemini_client import GeminiClient
+from app.chatbot.gemini_client import GeminiClient, GeminiResponseError, GeminiUnavailableError
 from app.chatbot.intent import EventFilters, IntentExtractionError, WEEKDAYS_CA, _at, extract_filters
 
 EVENTS_COLLECTION = "esdeveniments"
@@ -263,6 +264,15 @@ def build_system_instruction(now: datetime | None = None, language_name: str | N
     )
 
 
+# Gemini no ha pogut respondre (#142). Porta els esdeveniments ja recuperats perquè la resposta
+# alternativa no hagi de tornar a consultar Mongo.
+class AnswerUnavailableError(Exception):
+    def __init__(self, events: list[dict], alternatives: bool):
+        super().__init__("Gemini no ha pogut respondre")
+        self.events = events
+        self.alternatives = alternatives
+
+
 # Esdeveniments per respondre (#142): els que compleixen els filtres i, si no n'hi ha cap, un suggeriment
 # més general (les mateixes dates sense la resta de criteris i, si tampoc, els propers dies). El tercer
 # valor indica si són alternatives. Una data passada no s'amplia: s'ha d'explicar que ja ha passat.
@@ -365,9 +375,14 @@ def answer_with_events(
         f"{safe_message}\n"
         "</missatge_usuari>"
     )
-    return (client or GeminiClient()).generate(
-        prompt,
-        system_instruction=build_system_instruction(now, language_name),
-        temperature=0.25,
-        max_output_tokens=2048,
-    )
+    # Fora del try: sense GEMINI_API_KEY és un error de configuració (503), no una resposta alternativa.
+    client = client or GeminiClient()
+    try:
+        return client.generate(
+            prompt,
+            system_instruction=build_system_instruction(now, language_name),
+            temperature=0.25,
+            max_output_tokens=2048,
+        )
+    except (GeminiUnavailableError, GeminiResponseError, APIError) as exc:
+        raise AnswerUnavailableError(events, alternatives) from exc
