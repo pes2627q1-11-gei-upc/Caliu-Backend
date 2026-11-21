@@ -114,6 +114,55 @@ describe('parseEventQuery', () => {
     });
   });
 
+  describe('filtre per preu (price)', () => {
+    it('sense paràmetre "price" no afegeix filtre de preu', () => {
+      const { filter } = parseEventQuery({}, NOW);
+      expect(filter.price).toBeUndefined();
+    });
+
+    it('accepta price=free per filtrar esdeveniments gratuïts (price = 0)', () => {
+      const { filter } = parseEventQuery({ price: 'free' }, NOW);
+      expect(filter.price).toBe(0);
+    });
+
+    it('accepta price=paid per filtrar esdeveniments de pagament (price > 0)', () => {
+      const { filter } = parseEventQuery({ price: 'paid' }, NOW);
+      expect(filter.price).toEqual({ $gt: 0 });
+    });
+
+    it('és insensible a majúscules i ignora espais al voltant', () => {
+      expect(parseEventQuery({ price: 'FREE' }, NOW).filter.price).toBe(0);
+      expect(parseEventQuery({ price: ' Free ' }, NOW).filter.price).toBe(0);
+      expect(parseEventQuery({ price: 'PAID' }, NOW).filter.price).toEqual({ $gt: 0 });
+      expect(parseEventQuery({ price: ' paid ' }, NOW).filter.price).toEqual({ $gt: 0 });
+    });
+
+    it('rebutja valors no vàlids amb QueryError', () => {
+      const invalidValues = ['gratis', 'gratuït', '0', '10', '', ' ', 'unknown', true, null, ['free'], ['free', 'paid']];
+      for (const val of invalidValues) {
+        expect(() => parseEventQuery({ price: val }, NOW)).toThrow(QueryError);
+        expect(() => parseEventQuery({ price: val }, NOW)).toThrow(
+          'Paràmetre "price" invàlid (ha de ser "free" o "paid")',
+        );
+      }
+    });
+
+    it('es combina correctament amb altres filtres (categories, dates, text)', () => {
+      const { filter } = parseEventQuery({ price: 'free', category: 'Música', q: 'jazz' }, NOW);
+      expect(filter.price).toBe(0);
+      expect(filter.categories).toEqual({ $in: ['Música'] });
+      expect(filter.$or).toBeDefined();
+    });
+
+    it('es transmet a parseSearchQuery i parseNearbyQuery', () => {
+      const search = parseSearchQuery({ q: 'jazz', price: 'free' }, NOW);
+      expect(search.filter.price).toBe(0);
+
+      const nearby = parseNearbyQuery({ lat: '41.38', lng: '2.17', price: 'paid' }, NOW);
+      expect(nearby.filter.price).toEqual({ $gt: 0 });
+    });
+  });
+
   it('escapa els caràcters especials de la cerca de text', () => {
     const r = parseEventQuery({ q: 'a.b' }, NOW);
     const rx = r.filter.$or[0].title;

@@ -164,6 +164,7 @@ paths:
         - { name: tag, in: query, schema: { type: string }, description: "Una o més etiquetes separades per coma" }
         - { name: comarca, in: query, schema: { type: string } }
         - { name: municipality, in: query, schema: { type: string } }
+        - { name: price, in: query, schema: { type: string, enum: [free, paid] }, description: "Filtra per preu: 'free' per a esdeveniments gratuïts (preu 0) o 'paid' per a esdeveniments de pagament (preu > 0)" }
         - { name: from, in: query, schema: { type: string, format: date-time }, description: "Inici de l'interval. Per defecte, ara." }
         - { name: to, in: query, schema: { type: string, format: date-time }, description: "Final de l'interval" }
         - { name: lat, in: query, schema: { type: number, minimum: -90, maximum: 90 }, description: "Requereix lng" }
