@@ -34,6 +34,29 @@ paths:
         '400': { description: Id invàlid o usuari propi }
         '401': { description: Sessió no vàlida }
         '404': { description: Usuari no trobat }
+  /users/{username}:
+    get:
+      summary: Consulta un perfil públic i les assistències comunes
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: path, name: username, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Perfil públic
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, username, avatarUrl, sharedEventsCount, isFollowing]
+                properties:
+                  id: { type: string }
+                  username: { type: string }
+                  avatarUrl: { type: string, nullable: true }
+                  sharedEventsCount: { type: integer, minimum: 0 }
+                  isFollowing: { type: boolean }
+        '400': { description: Nom no vàlid }
+        '401': { description: Sessió no vàlida }
+        '404': { description: Usuari no trobat }
   /health:
     get:
       summary: Comprova que el servei funciona

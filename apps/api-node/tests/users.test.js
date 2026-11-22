@@ -467,3 +467,24 @@ describe('#61 seguiment', () => {
     expect(Follow.deleteOne).toHaveBeenCalledWith(relation);
   });
 });
+
+describe('#178 perfil públic', () => {
+  const path = '/users/N%C3%BAria';
+  const lookup = (user) => jest.spyOn(User, 'findOne').mockReturnValue({
+    collation: () => ({ select: () => ({ lean: async () => user }) }),
+  });
+  it('requereix sessió i distingeix usuaris inexistents', async () => {
+    expect((await request(app).get(path)).status).toBe(401);
+    lookup(null);
+    expect((await auth(request(app).get(path))).status).toBe(404);
+  });
+  it('retorna exclusivament el DTO social amb assistències comunes', async () => {
+    lookup({ ...users[OTHER_ID], username: 'Núria' });
+    jest.spyOn(Interaction, 'distinct').mockResolvedValue(['event']);
+    jest.spyOn(Interaction, 'countDocuments').mockResolvedValue(1);
+    jest.spyOn(Follow, 'exists').mockResolvedValue({ _id: 'follow' });
+    const res = await auth(request(app).get(path));
+    expect(res.body).toEqual({ id: OTHER_ID, username: 'Núria', avatarUrl: null, sharedEventsCount: 1, isFollowing: true });
+    expect(Interaction.countDocuments).toHaveBeenCalledWith({ userId: OTHER_ID, type: 'attended', eventId: { $in: ['event'] } });
+  });
+});

@@ -1,3 +1,4 @@
+import { getPublicProfile } from '../controllers/publicProfile.controller.js';
 import { follow, unfollow, validateFollowTarget } from '../controllers/follows.controller.js';
 import { Router } from 'express';
 import { getMe, updateMe, getPreferences, replacePreferences } from '../controllers/users.controller.js';
@@ -20,5 +21,7 @@ router.delete('/me/favorites/:eventId', removeFavorite);
 
 router.post('/:id/follow', validateFollowTarget, follow);
 router.delete('/:id/follow', validateFollowTarget, unfollow);
+
+router.get('/:username', getPublicProfile);
 
 export default router;
