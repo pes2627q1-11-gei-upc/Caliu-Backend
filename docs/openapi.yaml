@@ -46,6 +46,12 @@ paths:
               properties:
                 message: { type: string, minLength: 1, maxLength: 500 }
                 sessionId: { type: string, example: "6710f1c2a1b2c3d4e5f60718" }
+                locale:
+                  type: string
+                  enum: [ca, es, en]
+                  description: |
+                    Idioma de l'app. Només s'usa quan no es pot detectar l'idioma del missatge
+                    ni dels anteriors (p. ex. "ok" o "Girona"); l'idioma del missatge té prioritat.
       responses:
         '200':
           description: |
@@ -61,7 +67,7 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [sessionId, type, reply, events]
+                required: [sessionId, type, reply, events, filters]
                 properties:
                   sessionId: { type: string, nullable: true, description: "null només si era una conversa nova i la resposta és `fallback` (no es crea cap sessió buida)" }
                   type: { type: string, enum: [text, plan, fallback] }
@@ -70,6 +76,25 @@ paths:
                     type: array
                     description: Targetes clicables dels esdeveniments que esmenta la resposta (màxim 3). Buida a les respostes `plan`, perquè els passos ja porten les dades.
                     items: { $ref: '#/components/schemas/Event' }
+                  filters:
+                    type: object
+                    nullable: true
+                    description: |
+                      Filtres que el xatbot ha interpretat del missatge, perquè l'app els mostri.
+                      null si no n'ha interpretat cap o si l'extracció ha fallat. Demanar un itinerari
+                      no compta com a filtre: "fes-me un itinerari" sense data, lloc ni cap altre criteri
+                      dona null. Si hi ha altres filtres, `itinerary` és true quan s'ha demanat un itinerari.
+                    properties:
+                      from: { type: string, format: date-time, nullable: true }
+                      to: { type: string, format: date-time, nullable: true }
+                      timeOfDay: { type: string, nullable: true, example: tarda }
+                      categories: { type: array, items: { type: string } }
+                      audience: { type: string, nullable: true, example: infantil }
+                      maxPrice: { type: number, nullable: true, description: "0 = només gratuïts" }
+                      municipality: { type: string }
+                      comarca: { type: string }
+                      datePassed: { type: boolean }
+                      itinerary: { type: boolean, description: "L'usuari ha demanat un itinerari" }
                   plan:
                     type: object
                     description: Només quan `type` és `plan`. Itinerari d'un sol dia.
@@ -105,6 +130,15 @@ paths:
                 sessionId: "6710f1c2a1b2c3d4e5f60718"
                 type: plan
                 events: []
+                filters:
+                  from: "2026-11-21T10:30:00+01:00"
+                  to: "2026-11-21T23:59:59+01:00"
+                  timeOfDay: null
+                  categories: []
+                  audience: null
+                  maxPrice: null
+                  municipality: Girona
+                  itinerary: true
                 reply: "Aquí tens un itinerari de 2 passos per al 21/11:\n1. 10:30–12:00 · Visita guiada al Call (Girona)\n2. 12:30–13:30 · Concert vermut (Girona)"
                 plan:
                   date: "2026-11-21"
@@ -114,7 +148,7 @@ paths:
         '400':
           description: |
             Petició no vàlida. No reintentar: cal corregir el missatge.
-            Codis: `INVALID_BODY`, `MESSAGE_REQUIRED`, `MESSAGE_TOO_LONG`, `INVALID_SESSION_ID`.
+            Codis: `INVALID_BODY`, `MESSAGE_REQUIRED`, `MESSAGE_TOO_LONG`, `INVALID_SESSION_ID`, `INVALID_LOCALE`.
             Un cos que no és JSON vàlid també dona 400, però és un error comú de l'API: `{ error: "JSON no vàlid" }`
             sense `code` (esquema `Error`).
           content:
@@ -622,6 +656,7 @@ components:
         | `MESSAGE_REQUIRED` | 400 | No: cal escriure un missatge |
         | `MESSAGE_TOO_LONG` | 400 | No: màxim 500 caràcters |
         | `INVALID_SESSION_ID` | 400 | No: `sessionId` mal format |
+        | `INVALID_LOCALE` | 400 | No: `locale` ha de ser `ca`, `es` o `en` |
         | `SESSION_NOT_FOUND` | 404 | No: començar una sessió nova |
         | `RATE_LIMITED` | 429 | Sí, més tard |
         | `CHATBOT_ERROR` | 502 | Sí |
@@ -636,7 +671,7 @@ components:
         error: { type: string }
         code:
           type: string
-          enum: [INVALID_BODY, MESSAGE_REQUIRED, MESSAGE_TOO_LONG, INVALID_SESSION_ID, SESSION_NOT_FOUND, RATE_LIMITED, CHATBOT_ERROR, CHATBOT_INVALID_RESPONSE, CHATBOT_UNAVAILABLE, EVENTS_UNAVAILABLE, CHATBOT_TIMEOUT]
+          enum: [INVALID_BODY, MESSAGE_REQUIRED, MESSAGE_TOO_LONG, INVALID_SESSION_ID, INVALID_LOCALE, SESSION_NOT_FOUND, RATE_LIMITED, CHATBOT_ERROR, CHATBOT_INVALID_RESPONSE, CHATBOT_UNAVAILABLE, EVENTS_UNAVAILABLE, CHATBOT_TIMEOUT]
     Preferences:
       type: object
       required: [preferences, proximitatKm]
