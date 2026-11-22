@@ -221,6 +221,44 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
 
+  /users/me/avatar:
+    put:
+      summary: Substitueix la foto de perfil (JPEG o PNG fins a 2 MiB)
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [avatar]
+              properties:
+                avatar: { type: string, format: binary }
+      responses:
+        '200':
+          description: Nova URL de la imatge
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  avatarUrl: { type: string, format: uri }
+        '400': { description: Imatge no vàlida }
+        '401': { description: Sessió no vàlida }
+        '413': { description: Fitxer massa gran }
+  /users/{id}/avatar/{version}:
+    get:
+      summary: Recupera la imatge amb la URL versionada del perfil
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string } }
+        - { in: path, name: version, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Imatge normalitzada
+          content:
+            image/jpeg:
+              schema: { type: string, format: binary }
+        '404': { description: Imatge absent o substituïda }
   /users/me/preferences:
     get:
       summary: Preferències culturals i radi d'activitat de l'usuari autenticat
@@ -726,6 +764,7 @@ components:
       type: object
       required: [preferences, proximitatKm]
       properties:
+        avatarUrl: { type: string, format: uri }
         preferences:
           type: array
           items: { type: string }
