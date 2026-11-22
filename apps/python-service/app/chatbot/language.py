@@ -82,8 +82,13 @@ def detect_language(text: str) -> str | None:
     return best
 
 
-# Missatge ambigu ("i demà?"): s'agafa l'idioma dels missatges anteriors de l'usuari; si no, el català.
-def detect_conversation_language(message: str, history: list[dict] | None = None) -> str:
+# Missatge ambigu ("i demà?"): s'agafa l'idioma dels missatges anteriors de l'usuari; si no, `default`, que
+# és l'idioma de l'app quan l'envia (#147) o el català. L'idioma del missatge sempre té prioritat.
+def detect_conversation_language(
+    message: str,
+    history: list[dict] | None = None,
+    default: str | None = None,
+) -> str:
     language = detect_language(message)
     if language:
         return language
@@ -92,4 +97,4 @@ def detect_conversation_language(message: str, history: list[dict] | None = None
             language = detect_language(item.get("content", ""))
             if language:
                 return language
-    return DEFAULT_LANGUAGE
+    return default if default in LANGUAGES else DEFAULT_LANGUAGE

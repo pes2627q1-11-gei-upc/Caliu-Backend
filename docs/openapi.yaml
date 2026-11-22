@@ -46,6 +46,12 @@ paths:
               properties:
                 message: { type: string, minLength: 1, maxLength: 500 }
                 sessionId: { type: string, example: "6710f1c2a1b2c3d4e5f60718" }
+                locale:
+                  type: string
+                  enum: [ca, es, en]
+                  description: |
+                    Idioma de l'app. Només s'usa quan no es pot detectar l'idioma del missatge
+                    ni dels anteriors (p. ex. "ok" o "Girona"); l'idioma del missatge té prioritat.
       responses:
         '200':
           description: |
@@ -61,7 +67,7 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [sessionId, type, reply, events]
+                required: [sessionId, type, reply, events, filters]
                 properties:
                   sessionId: { type: string, nullable: true, description: "null només si era una conversa nova i la resposta és `fallback` (no es crea cap sessió buida)" }
                   type: { type: string, enum: [text, plan, fallback] }
@@ -70,6 +76,25 @@ paths:
                     type: array
                     description: Targetes clicables dels esdeveniments que esmenta la resposta (màxim 3). Buida a les respostes `plan`, perquè els passos ja porten les dades.
                     items: { $ref: '#/components/schemas/Event' }
+                  filters:
+                    type: object
+                    nullable: true
+                    description: |
+                      Filtres que el xatbot ha interpretat del missatge, perquè l'app els mostri.
+                      null si no n'ha interpretat cap o si l'extracció ha fallat. Demanar un itinerari
+                      no compta com a filtre: "fes-me un itinerari" sense data, lloc ni cap altre criteri
+                      dona null. Si hi ha altres filtres, `itinerary` és true quan s'ha demanat un itinerari.
+                    properties:
+                      from: { type: string, format: date-time, nullable: true }
+                      to: { type: string, format: date-time, nullable: true }
+                      timeOfDay: { type: string, nullable: true, example: tarda }
+                      categories: { type: array, items: { type: string } }
+                      audience: { type: string, nullable: true, example: infantil }
+                      maxPrice: { type: number, nullable: true, description: "0 = només gratuïts" }
+                      municipality: { type: string }
+                      comarca: { type: string }
+                      datePassed: { type: boolean }
+                      itinerary: { type: boolean, description: "L'usuari ha demanat un itinerari" }
                   plan:
                     type: object
                     description: Només quan `type` és `plan`. Itinerari d'un sol dia.
@@ -105,6 +130,15 @@ paths:
                 sessionId: "6710f1c2a1b2c3d4e5f60718"
                 type: plan
                 events: []
+                filters:
+                  from: "2026-11-21T10:30:00+01:00"
+                  to: "2026-11-21T23:59:59+01:00"
+                  timeOfDay: null
+                  categories: []
+                  audience: null
+                  maxPrice: null
+                  municipality: Girona
+                  itinerary: true
                 reply: "Aquí tens un itinerari de 2 passos per al 21/11:\n1. 10:30–12:00 · Visita guiada al Call (Girona)\n2. 12:30–13:30 · Concert vermut (Girona)"
                 plan:
                   date: "2026-11-21"
@@ -112,7 +146,7 @@ paths:
                     - { order: 1, id: "6710f1c2a1b2c3d4e5f60718", title: "Visita guiada al Call", start: "2026-11-21T10:30:00+01:00", end: "2026-11-21T12:00:00+01:00", venue: "Call jueu", address: "", municipality: "Girona", coordinates: [2.8259, 41.9875], distanceKm: null, travelMinutes: null, url: "" }
                     - { order: 2, id: "6710f1c2a1b2c3d4e5f60719", title: "Concert vermut", start: "2026-11-21T12:30:00+01:00", end: "2026-11-21T13:30:00+01:00", venue: "", address: "", municipality: "Girona", coordinates: [2.824, 41.9845], distanceKm: 0.4, travelMinutes: 2, url: "" }
         '400':
-          description: Missatge o identificador de sessió no vàlid
+          description: Missatge, identificador de sessió o `locale` no vàlids (o camps desconeguts)
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }

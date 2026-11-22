@@ -201,7 +201,10 @@ def test_fallback_reply_lists_at_most_three_events_with_local_times():
 
 def test_messages_endpoint_returns_the_fallback(monkeypatch):
     monkeypatch.setattr(chat_router, "answer_chat",
-                        lambda message, history, language: {"type": "fallback", "reply": "Ara mateix no puc…"})
+                        lambda message, history, language, **_: {"type": "fallback", "reply": "Ara mateix no puc…",
+                                                                  "events": []})
     res = TestClient(app).post("/chat/messages", json={"message": "què fer avui?"})
     assert res.status_code == 200
-    assert res.json() == {"type": "fallback", "reply": "Ara mateix no puc…", "language": "ca"}
+    # Sense filtres interpretats (#138): l'extracció no s'ha fet en aquest doble.
+    assert res.json() == {"type": "fallback", "reply": "Ara mateix no puc…", "events": [], "filters": None,
+                          "language": "ca"}
