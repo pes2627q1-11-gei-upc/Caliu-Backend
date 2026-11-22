@@ -29,14 +29,17 @@ export function normalizeEmail(value) {
 export function validateCredentials(body, registration = false) {
   validateFields(body, registration ? ['username', 'email', 'password'] : ['email', 'password']);
   const email = normalizeEmail(body.email);
-  const { password } = body;
+  return { email, password: validatePassword(body.password) };
+}
+
+export function validatePassword(password) {
   // bcrypt limita l'entrada a 72 bytes: rebutgem, mai truncem silenciosament.
   if (typeof password !== 'string' || [...password].length < 8
     || Buffer.byteLength(password, 'utf8') > 72 || !password.trim()
     || /\p{Cc}/u.test(password)) {
     throw invalid('password ha de tenir almenys 8 caràcters i com a màxim 72 bytes UTF-8, sense controls');
   }
-  return { email, password };
+  return password;
 }
 
 export function normalizeUsername(value) {

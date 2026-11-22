@@ -12,6 +12,40 @@ servers:
     description: "Local (Docker Compose). Des de l'emulador Android: http://10.0.2.2:3000"
 
 paths:
+  /auth/forgot-password:
+    post:
+      summary: Sol·licitud acceptada
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: { type: string }
+      responses:
+        '202': { description: Sol·licitud acceptada }
+        '400': { description: Petició invàlida }
+        '429': { description: Límit de cinc intents per IP i ruta en quinze minuts }
+        '503': { description: Servei de correu sense configurar }
+  /auth/reset-password:
+    post:
+      summary: Contrasenya actualitzada
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, password]
+              properties:
+                token: { type: string }
+                password: { type: string }
+      responses:
+        '204': { description: Contrasenya actualitzada }
+        '400': { description: Petició invàlida }
+        '429': { description: Límit de cinc intents per IP i ruta en quinze minuts }
   /health:
     get:
       summary: Comprova que el servei funciona

@@ -6,6 +6,8 @@ export const USERNAME_COLLATION = { locale: 'ca', strength: 2, normalization: tr
 const userSchema = new mongoose.Schema(
   {
     email: { type: String, required: true, unique: true, trim: true, lowercase: true, maxlength: 254 },
+    resetDigest: { type: String, select: false },
+    resetExpiresAt: { type: Date, select: false },
     passwordHash: { type: String, required: true, select: false },
     username: {
       type: String,
