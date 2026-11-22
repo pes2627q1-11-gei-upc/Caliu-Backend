@@ -47,6 +47,15 @@ function parsePositiveInt(value, name) {
   return n;
 }
 
+function parsePriceFilter(value) {
+  if (typeof value !== 'string') {
+    throw new QueryError('Paràmetre "price" invàlid (ha de ser "free" o "paid")');
+  }
+  const s = value.trim().toLowerCase();
+  if (s === 'free' || s === 'paid') return s;
+  throw new QueryError('Paràmetre "price" invàlid (ha de ser "free" o "paid")');
+}
+
 export function parseEventQuery(query = {}, now = new Date()) {
   const filter = {};
 
@@ -63,6 +72,12 @@ export function parseEventQuery(query = {}, now = new Date()) {
   if (categories.length) filter.categories = { $in: categories };
   const tags = toList(query.tag);
   if (tags.length) filter.tags = { $in: tags };
+
+  // --- Preu: "free" (gratuït, price = 0) o "paid" (de pagament, price > 0)
+  if (query.price !== undefined) {
+    const price = parsePriceFilter(query.price);
+    filter.price = price === 'free' ? 0 : { $gt: 0 };
+  }
 
   // --- Comarca / municipi: nom complet, sense distingir majúscules ni accents.
   // Accepten diversos valors ("a,b" o ?x=a&x=b): l'esdeveniment ha de coincidir amb algun.
