@@ -6,5 +6,5 @@ export const chatRateLimiter = rateLimit({
   keyGenerator: (req) => String(req.user._id),
   standardHeaders: 'draft-8',
   legacyHeaders: false,
-  message: { error: 'Has arribat al límit de missatges; torna-ho a provar més tard' },
+  message: { error: 'Has arribat al límit de missatges; torna-ho a provar més tard', code: 'RATE_LIMITED' },
 });
