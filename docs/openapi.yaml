@@ -34,6 +34,32 @@ paths:
         '400': { description: Id invàlid o usuari propi }
         '401': { description: Sessió no vàlida }
         '404': { description: Usuari no trobat }
+  /achievements:
+    get:
+      summary: Catàleg i progrés de l'usuari autenticat
+      security: [{ bearerAuth: [] }]
+      responses:
+        '401': { description: Sessió no vàlida }
+        '200':
+          description: Catàleg amb el progrés real del compte
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, title, description, icon, target, progress, unlocked]
+                      properties:
+                        id: { type: string }
+                        title: { type: string }
+                        description: { type: string }
+                        icon: { type: string }
+                        target: { type: integer, minimum: 1 }
+                        progress: { type: integer, minimum: 0 }
+                        unlocked: { type: boolean }
   /health:
     get:
       summary: Comprova que el servei funciona

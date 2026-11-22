@@ -1,3 +1,5 @@
+import { noStore, requireAuth } from './middlewares/auth.js';
+import { listAchievements } from './controllers/achievements.controller.js';
 import express from 'express';
 import eventsRoutes from './routes/events.routes.js';
 import authRoutes from './routes/auth.routes.js';
@@ -19,6 +21,7 @@ app.get('/health', (_req, res) => {
   res.json({ status: 'ok', service: 'api-node' });
 });
 
+app.get('/achievements', noStore, requireAuth, listAchievements);
 app.use('/events', eventsRoutes);
 app.use('/auth', authRoutes);
 app.use('/users', usersRoutes);
