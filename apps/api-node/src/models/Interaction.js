@@ -6,6 +6,7 @@ const interactionSchema = new Schema(
   {
     userId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     eventId: { type: Schema.Types.ObjectId, ref: 'Event', required: true },
+    notificacionsActives: { type: Boolean },
     type: { type: String, enum: ['favorite', 'attended'], required: true },
   },
   { timestamps: true },

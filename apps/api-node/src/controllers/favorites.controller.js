@@ -19,7 +19,7 @@ export async function addFavorite(req, res, next) {
     try {
       await Interaction.updateOne(
         favorite,
-        { $setOnInsert: { createdAt: now, updatedAt: now } },
+        { $setOnInsert: { createdAt: now, updatedAt: now, notificacionsActives: true } },
         { upsert: true, timestamps: false },
       );
     } catch (err) {
@@ -64,7 +64,10 @@ async function listInteractions(req, res, next, type, serialize) {
 }
 
 export function listFavorites(req, res, next) {
-  return listInteractions(req, res, next, 'favorite', ({ eventId }) => toApi(eventId, new Set([String(eventId._id)])));
+  return listInteractions(req, res, next, 'favorite', ({ eventId, notificacionsActives }) => ({
+    ...toApi(eventId, new Set([String(eventId._id)])),
+    notificacionsActives: notificacionsActives ?? true,
+  }));
 }
 
 export function listActivity(req, res, next) {
@@ -85,6 +88,30 @@ export async function listAttended(req, res, next) {
       .sort((a, b) => b.endDate - a.endDate || String(a._id).localeCompare(String(b._id)))
       .map((event) => toApi(event));
     return res.json({ items });
+  } catch (err) {
+    return next(err);
+  }
+}
+
+export async function updateFavoriteAlerts(req, res, next) {
+  const { eventId } = req.params;
+  const { notificacionsActives } = req.body ?? {};
+  if (!mongoose.isObjectIdOrHexString(eventId)) {
+    return res.status(400).json({ error: 'Identificador d’esdeveniment invàlid' });
+  }
+  if (typeof notificacionsActives !== 'boolean') {
+    return res.status(400).json({ error: 'notificacionsActives ha de ser un booleà' });
+  }
+
+  try {
+    const result = await Interaction.updateOne(
+      { userId: req.user._id, type: 'favorite', eventId },
+      { $set: { notificacionsActives } },
+    );
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ error: 'Preferit no trobat' });
+    }
+    return res.status(204).end();
   } catch (err) {
     return next(err);
   }
