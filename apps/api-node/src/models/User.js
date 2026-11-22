@@ -9,6 +9,8 @@ const userSchema = new mongoose.Schema(
     avatarUrl: String,
     avatarVersion: { type: String, select: false },
     avatarBytes: { type: Buffer, select: false },
+    resetDigest: { type: String, select: false },
+    resetExpiresAt: { type: Date, select: false },
     passwordHash: { type: String, required: true, select: false },
     username: {
       type: String,

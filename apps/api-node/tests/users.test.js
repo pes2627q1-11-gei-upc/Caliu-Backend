@@ -1,3 +1,6 @@
+import Achievement from '../src/models/Achievement.js';
+import { catalog, seedAchievements } from '../src/domain/achievementCatalog.js';
+import Follow from '../src/models/Follow.js';
 import { jest } from '@jest/globals';
 import request from 'supertest';
 import jwt from 'jsonwebtoken';
@@ -441,6 +444,73 @@ describe('#170 alertes dels preferits', () => {
       .mockRejectedValueOnce(new Error('Mongo unavailable'));
     expect((await auth(request(app).patch(path)).send({ notificacionsActives: false })).status).toBe(404);
     expect((await auth(request(app).patch(path)).send({ notificacionsActives: false })).status).toBe(500);
+  });
+});
+
+describe('#61 seguiment', () => {
+  it.each(['post', 'delete'])('valida autenticació i destí amb %s', async (method) => {
+    const route = (id) => request(app)[method](`/users/${id}/follow`);
+    expect((await route(OTHER_ID)).status).toBe(401);
+    expect((await auth(route(ID))).status).toBe(400);
+    expect((await auth(route('invalid'))).status).toBe(400);
+    jest.spyOn(User, 'exists').mockResolvedValue(null);
+    expect((await auth(route(OTHER_ID))).status).toBe(404);
+  });
+
+  it('segueix i deixa de seguir només en la direcció demanada', async () => {
+    jest.spyOn(User, 'exists').mockResolvedValue({ _id: OTHER_ID });
+    jest.spyOn(Follow, 'updateOne').mockResolvedValue({});
+    jest.spyOn(Follow, 'deleteOne').mockResolvedValue({});
+    const relation = { follower: ID, followed: OTHER_ID };
+    const path = `/users/${OTHER_ID}/follow`;
+    expect((await auth(request(app).post(path))).status).toBe(204);
+    expect(Follow.updateOne).toHaveBeenCalledWith(relation, { $setOnInsert: relation }, { upsert: true });
+    expect((await auth(request(app).delete(path))).status).toBe(204);
+    expect(Follow.deleteOne).toHaveBeenCalledWith(relation);
+  });
+});
+
+describe('#59 assoliments', () => {
+  it('inicialitza el catàleg amb upserts per id estable', async () => {
+    const write = jest.spyOn(Achievement, 'bulkWrite').mockResolvedValue({});
+    await seedAchievements();
+    expect(write.mock.calls[0][0]).toHaveLength(6);
+    expect(write.mock.calls[0][0][0].updateOne).toMatchObject({ filter: { _id: 'first-event' }, upsert: true });
+  });
+  it('calcula el progrés del compte i conserva els assoliments bloquejats', async () => {
+    expect((await request(app).get('/achievements')).status).toBe(401);
+    jest.spyOn(Achievement, 'find').mockReturnValue({ sort: () => ({ lean: async () => catalog }) });
+    jest.spyOn(Interaction, 'distinct').mockResolvedValue(['event']);
+    jest.spyOn(Interaction, 'countDocuments').mockResolvedValue(0);
+    jest.spyOn(Follow, 'countDocuments').mockResolvedValue(12);
+    jest.spyOn(Event, 'countDocuments').mockReturnValue({ collation: async () => 0 });
+    const res = await auth(request(app).get('/achievements'));
+    expect(res.status).toBe(200);
+    expect(res.body.items).toHaveLength(6);
+    expect(res.body.items[0]).toMatchObject({ id: 'first-event', progress: 1, unlocked: true });
+    expect(res.body.items[1]).toMatchObject({ id: 'explorer', progress: 1, unlocked: false });
+    expect(res.body.items[5]).toMatchObject({ id: 'social', progress: 5, unlocked: true });
+  });
+});
+
+describe('#178 perfil públic', () => {
+  const path = '/users/N%C3%BAria';
+  const lookup = (user) => jest.spyOn(User, 'findOne').mockReturnValue({
+    collation: () => ({ select: () => ({ lean: async () => user }) }),
+  });
+  it('requereix sessió i distingeix usuaris inexistents', async () => {
+    expect((await request(app).get(path)).status).toBe(401);
+    lookup(null);
+    expect((await auth(request(app).get(path))).status).toBe(404);
+  });
+  it('retorna exclusivament el DTO social amb assistències comunes', async () => {
+    lookup({ ...users[OTHER_ID], username: 'Núria' });
+    jest.spyOn(Interaction, 'distinct').mockResolvedValue(['event']);
+    jest.spyOn(Interaction, 'countDocuments').mockResolvedValue(1);
+    jest.spyOn(Follow, 'exists').mockResolvedValue({ _id: 'follow' });
+    const res = await auth(request(app).get(path));
+    expect(res.body).toEqual({ id: OTHER_ID, username: 'Núria', avatarUrl: null, sharedEventsCount: 1, isFollowing: true });
+    expect(Interaction.countDocuments).toHaveBeenCalledWith({ userId: OTHER_ID, type: 'attended', eventId: { $in: ['event'] } });
   });
 });
 

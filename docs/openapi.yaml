@@ -12,6 +12,111 @@ servers:
     description: "Local (Docker Compose). Des de l'emulador Android: http://10.0.2.2:3000"
 
 paths:
+  /users/{id}/follow:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema: { type: string }
+    post:
+      summary: Segueix un usuari
+      security: [{ bearerAuth: [] }]
+      responses:
+        '204': { description: Operació completada (idempotent) }
+        '400': { description: Id invàlid o usuari propi }
+        '401': { description: Sessió no vàlida }
+        '404': { description: Usuari no trobat }
+    delete:
+      summary: Deixa de seguir un usuari
+      security: [{ bearerAuth: [] }]
+      responses:
+        '204': { description: Operació completada (idempotent) }
+        '400': { description: Id invàlid o usuari propi }
+        '401': { description: Sessió no vàlida }
+        '404': { description: Usuari no trobat }
+  /achievements:
+    get:
+      summary: Catàleg i progrés de l'usuari autenticat
+      security: [{ bearerAuth: [] }]
+      responses:
+        '401': { description: Sessió no vàlida }
+        '200':
+          description: Catàleg amb el progrés real del compte
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, title, description, icon, target, progress, unlocked]
+                      properties:
+                        id: { type: string }
+                        title: { type: string }
+                        description: { type: string }
+                        icon: { type: string }
+                        target: { type: integer, minimum: 1 }
+                        progress: { type: integer, minimum: 0 }
+                        unlocked: { type: boolean }
+  /users/{username}:
+    get:
+      summary: Consulta un perfil públic i les assistències comunes
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: path, name: username, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Perfil públic
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, username, avatarUrl, sharedEventsCount, isFollowing]
+                properties:
+                  id: { type: string }
+                  username: { type: string }
+                  avatarUrl: { type: string, nullable: true }
+                  sharedEventsCount: { type: integer, minimum: 0 }
+                  isFollowing: { type: boolean }
+        '400': { description: Nom no vàlid }
+        '401': { description: Sessió no vàlida }
+        '404': { description: Usuari no trobat }
+  /auth/forgot-password:
+    post:
+      summary: Sol·licitud acceptada
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: { type: string }
+      responses:
+        '202': { description: Sol·licitud acceptada }
+        '400': { description: Petició invàlida }
+        '429': { description: Límit de cinc intents per IP i ruta en quinze minuts }
+        '503': { description: Servei de correu sense configurar }
+  /auth/reset-password:
+    post:
+      summary: Contrasenya actualitzada
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, password]
+              properties:
+                token: { type: string }
+                password: { type: string }
+      responses:
+        '204': { description: Contrasenya actualitzada }
+        '400': { description: Petició invàlida }
+        '429': { description: Límit de cinc intents per IP i ruta en quinze minuts }
   /health:
     get:
       summary: Comprova que el servei funciona

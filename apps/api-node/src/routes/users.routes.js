@@ -1,4 +1,6 @@
 import { readAvatar, saveAvatar, getAvatar } from '../controllers/avatar.controller.js';
+import { getPublicProfile } from '../controllers/publicProfile.controller.js';
+import { follow, unfollow, validateFollowTarget } from '../controllers/follows.controller.js';
 import { Router } from 'express';
 import { getMe, updateMe, getPreferences, replacePreferences } from '../controllers/users.controller.js';
 import { addFavorite, listActivity, listAttended, listFavorites, removeFavorite, updateFavoriteAlerts } from '../controllers/favorites.controller.js';
@@ -19,5 +21,10 @@ router.get('/me/favorites', listFavorites);
 router.post('/me/favorites', addFavorite);
 router.patch('/me/favorites/:eventId', updateFavoriteAlerts);
 router.delete('/me/favorites/:eventId', removeFavorite);
+
+router.post('/:id/follow', validateFollowTarget, follow);
+router.delete('/:id/follow', validateFollowTarget, unfollow);
+
+router.get('/:username', getPublicProfile);
 
 export default router;
