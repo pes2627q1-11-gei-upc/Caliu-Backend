@@ -58,14 +58,19 @@ paths:
             Resposta del xatbot. `type` és `text` per a una resposta normal o `plan` quan l'usuari
             demana un itinerari: llavors `plan` conté els passos encadenats, ordenats per hora i distància,
             que l'app mostra amb el widget d'itinerari. `reply` sempre porta el text (també el del pla).
+            `fallback` vol dir que el model d'IA no ha respost després dels reintents: `reply` és un missatge
+            alternatiu (amb algunes activitats, si n'hi ha) i la conversa no es desa a l'historial, de manera
+            que l'app pot oferir tornar a enviar el mateix missatge (a la mateixa sessió, o sense `sessionId`
+            si era una conversa nova).
+            Si no hi ha resultats per als criteris, `reply` ho diu i proposa alternatives més generals.
           content:
             application/json:
               schema:
                 type: object
                 required: [sessionId, type, reply, events, filters]
                 properties:
-                  sessionId: { type: string }
-                  type: { type: string, enum: [text, plan] }
+                  sessionId: { type: string, nullable: true, description: "null només si era una conversa nova i la resposta és `fallback` (no es crea cap sessió buida)" }
+                  type: { type: string, enum: [text, plan, fallback] }
                   reply: { type: string }
                   events:
                     type: array
@@ -141,32 +146,77 @@ paths:
                     - { order: 1, id: "6710f1c2a1b2c3d4e5f60718", title: "Visita guiada al Call", start: "2026-11-21T10:30:00+01:00", end: "2026-11-21T12:00:00+01:00", venue: "Call jueu", address: "", municipality: "Girona", coordinates: [2.8259, 41.9875], distanceKm: null, travelMinutes: null, url: "" }
                     - { order: 2, id: "6710f1c2a1b2c3d4e5f60719", title: "Concert vermut", start: "2026-11-21T12:30:00+01:00", end: "2026-11-21T13:30:00+01:00", venue: "", address: "", municipality: "Girona", coordinates: [2.824, 41.9845], distanceKm: 0.4, travelMinutes: 2, url: "" }
         '400':
-          description: Missatge, identificador de sessió o `locale` no vàlids (o camps desconeguts)
+          description: |
+            Petició no vàlida. No reintentar: cal corregir el missatge.
+            Codis: `INVALID_BODY`, `MESSAGE_REQUIRED`, `MESSAGE_TOO_LONG`, `INVALID_SESSION_ID`, `INVALID_LOCALE`.
+            Un cos que no és JSON vàlid també dona 400, però és un error comú de l'API: `{ error: "JSON no vàlid" }`
+            sense `code` (esquema `Error`).
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/Error' }
+              schema:
+                oneOf:
+                  - { $ref: '#/components/schemas/ChatError' }
+                  - { $ref: '#/components/schemas/Error' }
+              example: { error: 'Camp "message" massa llarg (màxim 500 caràcters)', code: MESSAGE_TOO_LONG }
         '401':
-          description: Cal autenticació
+          description: Cal autenticació (error comú de l'API, sense `code`). Cal tornar a iniciar sessió.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
         '404':
-          description: Sessió de xat no trobada
+          description: |
+            Sessió de xat no trobada o d'una altra persona (`SESSION_NOT_FOUND`). Es pot començar
+            una conversa nova enviant el missatge sense `sessionId`.
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/Error' }
+              schema: { $ref: '#/components/schemas/ChatError' }
+              example: { error: Sessió de xat no trobada, code: SESSION_NOT_FOUND }
         '429':
-          description: Límit de missatges assolit (10 per minut i usuari)
+          description: |
+            Límit de missatges assolit, 10 per minut i usuari (`RATE_LIMITED`). Es pot reintentar quan
+            ho indiqui la capçalera `Retry-After` (en segons); també s'envien `RateLimit` i `RateLimit-Policy`.
+          headers:
+            Retry-After:
+              description: Segons que cal esperar abans de tornar-ho a provar.
+              schema: { type: integer, example: 60 }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChatError' }
+              example: { error: Has arribat al límit de missatges; torna-ho a provar més tard, code: RATE_LIMITED }
+        '413':
+          description: |
+            Petició massa gran (límit de 100 kB de `express.json`). Error comú de l'API, sense `code`:
+            `{ error: "Petició massa gran" }`. No reintentar.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
         '502':
-          description: Servei Python no disponible
+          description: |
+            El servei de xatbot ha fallat o ha donat una resposta no vàlida
+            (`CHATBOT_ERROR`, `CHATBOT_INVALID_RESPONSE`). Es pot reintentar.
+            Qualsevol error inesperat del servei de xatbot (p. ex. un 4xx intern) arriba com a 502 `CHATBOT_ERROR`:
+            els altres estats d'aquesta llista només tenen els codis que s'hi indiquen.
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/Error' }
+              schema: { $ref: '#/components/schemas/ChatError' }
+              example: { error: El servei de xatbot ha fallat, code: CHATBOT_ERROR }
+        '503':
+          description: |
+            Servei no disponible: el xatbot (`CHATBOT_UNAVAILABLE`) o la base d'esdeveniments
+            (`EVENTS_UNAVAILABLE`). Es pot reintentar més tard.
+            Si només falla el model d'IA, la resposta no és aquest error sinó un 200 amb `type: fallback`.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChatError' }
+              example: { error: El servei d'esdeveniments no està disponible, code: EVENTS_UNAVAILABLE }
+        '504':
+          description: El servei de xatbot ha tardat massa a respondre (`CHATBOT_TIMEOUT`, després de `PYTHON_TIMEOUT_MS`). Es pot reintentar.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChatError' }
+              example: { error: El servei de xatbot ha tardat massa a respondre, code: CHATBOT_TIMEOUT }
         '500':
-          description: Error intern en la configuració o la persistència
+          description: Error intern en la configuració o la persistència (error comú de l'API, sense `code`).
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -644,6 +694,34 @@ components:
       type: object
       properties:
         error: { type: string }
+    ChatError:
+      type: object
+      description: |
+        Error de `POST /chat/messages` (#143). `error` és un missatge per mostrar a l'usuari i `code` un
+        identificador estable perquè l'app decideixi què fer sense dependre del text.
+
+        | Codi | HTTP | Reintentar? |
+        |------|------|-------------|
+        | `INVALID_BODY` | 400 | No: el cos té camps no admesos |
+        | `MESSAGE_REQUIRED` | 400 | No: cal escriure un missatge |
+        | `MESSAGE_TOO_LONG` | 400 | No: màxim 500 caràcters |
+        | `INVALID_SESSION_ID` | 400 | No: `sessionId` mal format |
+        | `INVALID_LOCALE` | 400 | No: `locale` ha de ser `ca`, `es` o `en` |
+        | `SESSION_NOT_FOUND` | 404 | No: començar una sessió nova |
+        | `RATE_LIMITED` | 429 | Sí, més tard |
+        | `CHATBOT_ERROR` | 502 | Sí |
+        | `CHATBOT_INVALID_RESPONSE` | 502 | Sí |
+        | `CHATBOT_UNAVAILABLE` | 503 | Sí, més tard |
+        | `EVENTS_UNAVAILABLE` | 503 | Sí, més tard |
+        | `CHATBOT_TIMEOUT` | 504 | Sí |
+
+        Cap d'aquests errors desa el missatge a l'historial: reintentar no el duplica.
+      required: [error, code]
+      properties:
+        error: { type: string }
+        code:
+          type: string
+          enum: [INVALID_BODY, MESSAGE_REQUIRED, MESSAGE_TOO_LONG, INVALID_SESSION_ID, INVALID_LOCALE, SESSION_NOT_FOUND, RATE_LIMITED, CHATBOT_ERROR, CHATBOT_INVALID_RESPONSE, CHATBOT_UNAVAILABLE, EVENTS_UNAVAILABLE, CHATBOT_TIMEOUT]
     Preferences:
       type: object
       required: [preferences, proximitatKm]

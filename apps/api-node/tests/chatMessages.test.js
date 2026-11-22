@@ -7,6 +7,7 @@ import SessioXatbot from '../src/models/SessioXatbot.js';
 import MissatgeXatbot from '../src/models/MissatgeXatbot.js';
 import User from '../src/models/User.js';
 import { chatRateLimiter } from '../src/middlewares/chatRateLimit.js';
+import { httpError } from '../src/domain/httpError.js';
 
 const proxyToPython = jest.fn();
 jest.unstable_mockModule('../src/integrations/pythonService.js', () => ({ proxyToPython }));
@@ -141,6 +142,32 @@ describe('POST /chat/messages', () => {
     expect(res.body).toEqual({ sessionId: CHAT_SESSION_ID, type: 'text', reply: 'Text', events: [], filters: null });
   });
 
+  it('returns the fallback answer without storing it, so the message can be sent again (#142)', async () => {
+    proxyToPython.mockResolvedValueOnce({ type: 'fallback', reply: 'Ara mateix no puc respondre…', language: 'ca' });
+
+    const res = await auth(request(app).post('/chat/messages').send({ message: 'plans per avui?' }));
+
+    expect(res.status).toBe(200);
+    // Conversa nova: no es crea cap sessió buida.
+    expect(res.body).toEqual({
+      sessionId: null, type: 'fallback', reply: 'Ara mateix no puc respondre…', events: [], filters: null,
+    });
+    expect(SessioXatbot.create).not.toHaveBeenCalled();
+    expect(MissatgeXatbot.create).not.toHaveBeenCalled();
+  });
+
+  it('keeps the existing session on a fallback answer', async () => {
+    proxyToPython.mockResolvedValueOnce({ type: 'fallback', reply: 'Ara mateix no puc respondre…' });
+
+    const res = await auth(request(app).post('/chat/messages').send({ message: 'i demà?', sessionId: CHAT_SESSION_ID }));
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      sessionId: CHAT_SESSION_ID, type: 'fallback', reply: 'Ara mateix no puc respondre…', events: [], filters: null,
+    });
+    expect(MissatgeXatbot.create).not.toHaveBeenCalled();
+  });
+
   it('uses an existing session only when it belongs to the authenticated user', async () => {
     const res = await auth(request(app).post('/chat/messages').send({
       message: 'teatre',
@@ -195,22 +222,25 @@ describe('POST /chat/messages', () => {
     }));
 
     expect(notOwned.status).toBe(404);
-    expect(notOwned.body).toEqual({ error: 'Sessió de xat no trobada' });
+    expect(notOwned.body).toEqual({ error: 'Sessió de xat no trobada', code: 'SESSION_NOT_FOUND' });
     expect(malformed.status).toBe(400);
+    expect(malformed.body).toEqual({ error: 'Camp "sessionId" no vàlid', code: 'INVALID_SESSION_ID' });
     expect(proxyToPython).not.toHaveBeenCalled();
   });
 
   it.each([
-    {},
-    { message: '  ' },
-    { message: 'x'.repeat(501) },
-    { message: 'hola', userId: OTHER_USER_ID },
-    { message: 'hola', locale: 'fr' },
-    { message: 'hola', locale: 3 },
-  ])('validates message input before creating chat data', async (body) => {
+    [{}, 'MESSAGE_REQUIRED'],
+    [{ message: '  ' }, 'MESSAGE_REQUIRED'],
+    [{ message: 42 }, 'MESSAGE_REQUIRED'],
+    [{ message: 'x'.repeat(501) }, 'MESSAGE_TOO_LONG'],
+    [{ message: 'hola', userId: OTHER_USER_ID }, 'INVALID_BODY'],
+    [{ message: 'hola', locale: 'fr' }, 'INVALID_LOCALE'],
+    [{ message: 'hola', locale: 3 }, 'INVALID_LOCALE'],
+  ])('validates message input before creating chat data %#', async (body, code) => {
     const res = await auth(request(app).post('/chat/messages').send(body));
 
     expect(res.status).toBe(400);
+    expect(res.body).toEqual({ error: expect.any(String), code });
     expect(SessioXatbot.create).not.toHaveBeenCalled();
     expect(MissatgeXatbot.create).not.toHaveBeenCalled();
     expect(proxyToPython).not.toHaveBeenCalled();
@@ -221,6 +251,33 @@ describe('POST /chat/messages', () => {
 
     expect(res.status).toBe(401);
     expect(SessioXatbot.create).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [503, 'CHATBOT_UNAVAILABLE', 'El servei de xatbot no està disponible'],
+    [503, 'EVENTS_UNAVAILABLE', 'El servei d\'esdeveniments no està disponible'],
+    [504, 'CHATBOT_TIMEOUT', 'El servei de xatbot ha tardat massa a respondre'],
+    [502, 'CHATBOT_ERROR', 'El servei de xatbot ha fallat'],
+  ])('returns %i %s with its message so the app can offer a retry (#143)', async (status, code, error) => {
+    proxyToPython.mockRejectedValueOnce(httpError(status, error, code));
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    const res = await auth(request(app).post('/chat/messages').send({ message: 'teatre' }));
+
+    expect(res.status).toBe(status);
+    expect(res.body).toEqual({ error, code });
+    expect(MissatgeXatbot.create).not.toHaveBeenCalled();
+  });
+
+  it('returns CHATBOT_INVALID_RESPONSE if Python answers without text', async () => {
+    proxyToPython.mockResolvedValueOnce({ reply: '  ' });
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    const res = await auth(request(app).post('/chat/messages').send({ message: 'teatre' }));
+
+    expect(res.status).toBe(502);
+    expect(res.body).toEqual({ error: 'Resposta del servei de xatbot no vàlida', code: 'CHATBOT_INVALID_RESPONSE' });
+    expect(MissatgeXatbot.create).not.toHaveBeenCalled();
   });
 
   it('does not create a session or store messages if Python fails', async () => {
@@ -296,7 +353,8 @@ describe('POST /chat/messages', () => {
     const res = await auth(request(app).post('/chat/messages').send({ message: 'teatre' }));
 
     expect(res.status).toBe(502);
-    expect(res.body).toEqual({ error: 'Error intern del servidor' });
+    // #143: l'error porta el seu codi i un missatge propi en lloc del genèric.
+    expect(res.body).toEqual({ error: 'Resposta del servei de xatbot no vàlida', code: 'CHATBOT_INVALID_RESPONSE' });
     expect(SessioXatbot.create).not.toHaveBeenCalled();
     expect(MissatgeXatbot.create).not.toHaveBeenCalled();
   });
@@ -311,6 +369,7 @@ describe('POST /chat/messages', () => {
     expect(responses[10].status).toBe(429);
     expect(responses[10].body).toEqual({
       error: 'Has arribat al límit de missatges; torna-ho a provar més tard',
+      code: 'RATE_LIMITED',
     });
     expect(proxyToPython).toHaveBeenCalledTimes(10);
   });

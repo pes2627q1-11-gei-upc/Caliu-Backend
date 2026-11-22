@@ -197,7 +197,7 @@ def test_messages_endpoint_returns_service_unavailable_on_gemini_error(monkeypat
     res = client.post("/chat/messages", json={"message": "teatre"})
 
     assert res.status_code == 503
-    assert res.json() == {"error": "El servei de xatbot no està disponible"}
+    assert res.json() == {"error": "El servei de xatbot no està disponible", "code": "CHATBOT_UNAVAILABLE"}
     assert "No s'ha pogut generar la resposta del xatbot" in caplog.text
 
 
@@ -209,5 +209,5 @@ def test_messages_endpoint_returns_service_unavailable_on_mongo_error(monkeypatc
     res = client.post("/chat/messages", json={"message": "teatre"})
 
     assert res.status_code == 503
-    assert res.json() == {"error": "El servei d'esdeveniments no està disponible"}
+    assert res.json() == {"error": "El servei d'esdeveniments no està disponible", "code": "EVENTS_UNAVAILABLE"}
     assert "No s'han pogut recuperar esdeveniments per al xatbot" in caplog.text

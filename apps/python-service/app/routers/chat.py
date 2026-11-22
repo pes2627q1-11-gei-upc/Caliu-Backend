@@ -77,13 +77,20 @@ def chat_messages(body: MessagesRequest):
         answer = answer_chat(message, history=history, language=language, filter_extractor=capture_filters)
     except (APIError, RuntimeError):
         logger.exception("No s'ha pogut generar la resposta del xatbot")
-        return JSONResponse(status_code=503, content={"error": "El servei de xatbot no està disponible"})
+        return JSONResponse(
+            status_code=503,
+            content={"error": "El servei de xatbot no està disponible", "code": "CHATBOT_UNAVAILABLE"},
+        )
     except PyMongoError:
         logger.exception("No s'han pogut recuperar esdeveniments per al xatbot")
-        return JSONResponse(status_code=503, content={"error": "El servei d'esdeveniments no està disponible"})
-    # {"type": "text" | "plan", "reply", "events", "plan"?, "filters", "language"}: "events" són les targetes
-    # clicables (#54), "plan" és el que mostra el widget d'itinerari (#140) i "filters" el que s'ha interpretat
-    # del missatge perquè l'app ho mostri (#138), o null si no s'ha interpretat cap filtre.
+        return JSONResponse(
+            status_code=503,
+            content={"error": "El servei d'esdeveniments no està disponible", "code": "EVENTS_UNAVAILABLE"},
+        )
+    # {"type": "text" | "plan" | "fallback", "reply", "events", "plan"?, "filters", "language"}: "events" són
+    # les targetes clicables (#54), "plan" és el que mostra el widget d'itinerari (#140), "fallback" és la
+    # resposta alternativa quan Gemini no ha respost (#142) i "filters" el que s'ha interpretat del missatge
+    # perquè l'app ho mostri (#138), o null si no s'ha interpretat cap filtre.
     filters = interpreted[-1] if interpreted else None
     return {
         **answer,
