@@ -423,7 +423,12 @@ paths:
                   items:
                     type: array
                     items:
-                      $ref: '#/components/schemas/Event'
+                      allOf:
+                        - { $ref: '#/components/schemas/Event' }
+                        - type: object
+                          required: [notificacionsActives]
+                          properties:
+                            notificacionsActives: { type: boolean, description: Alertes del preferit activades }
         '401':
           description: Cal una sessió vàlida
           content:
@@ -545,6 +550,50 @@ paths:
               schema: { $ref: '#/components/schemas/Error' }
 
   /users/me/favorites/{eventId}:
+    patch:
+      summary: Activa o silencia les alertes d’un preferit propi
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: eventId
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^[0-9A-Fa-f]{24}$'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [notificacionsActives]
+              properties:
+                notificacionsActives: { type: boolean }
+      responses:
+        '204':
+          description: Preferència desada
+        '400':
+          description: Identificador o cos de la petició invàlid
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401':
+          description: Cal una sessió vàlida
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '404':
+          description: Preferit propi no trobat
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '500':
+          description: Error intern del servidor
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
     delete:
       summary: Elimina un esdeveniment dels preferits de l'usuari autenticat
       description: |

@@ -272,7 +272,7 @@ describe('#185 alta de preferits', () => {
     expect(Interaction.updateOne).toHaveBeenCalledTimes(2);
     expect(Interaction.updateOne).toHaveBeenLastCalledWith(
       { userId: ID, type: 'favorite', eventId },
-      { $setOnInsert: { createdAt: expect.any(Date), updatedAt: expect.any(Date) } },
+      { $setOnInsert: { createdAt: expect.any(Date), updatedAt: expect.any(Date), notificacionsActives: true } },
       { upsert: true, timestamps: false },
     );
   });
@@ -342,7 +342,7 @@ describe('#151 guardats i activitat', () => {
   });
 
   it.each([
-    ['favorites', 'favorite', { id: eventId, title: 'Concert', isFavorite: true }],
+    ['favorites', 'favorite', { id: eventId, title: 'Concert', isFavorite: true, notificacionsActives: true }],
     ['activity', 'attended', { id: interactionId, event: { id: eventId, title: 'Concert' }, attendedAt: createdAt.toISOString() }],
   ])('retorna només les interaccions pròpies a /%s', async (route, type, item) => {
     const res = await auth(request(app).get(`/users/me/${route}?userId=${OTHER_ID}`));
@@ -398,5 +398,48 @@ describe('#168 historial d’assistència', () => {
     expect(res.body).toEqual({ items: [] });
     lean.mockRejectedValueOnce(new Error('Mongo unavailable'));
     expect((await auth(request(app).get(path))).status).toBe(500);
+  });
+});
+
+describe('#170 alertes dels preferits', () => {
+  const eventId = '64b7f0c2a1b2c3d4e5f60720';
+  const path = `/users/me/favorites/${eventId}`;
+
+  beforeEach(() => {
+    jest.spyOn(Interaction, 'updateOne').mockResolvedValue({ matchedCount: 1, modifiedCount: 0 });
+  });
+
+  it.each([false, true])('desa notificacionsActives=%s només al preferit propi', async (enabled) => {
+    const res = await auth(request(app).patch(path)).send({ notificacionsActives: enabled, userId: OTHER_ID });
+    expect(res.status).toBe(204);
+    expect(Interaction.updateOne).toHaveBeenCalledWith(
+      { userId: ID, type: 'favorite', eventId },
+      { $set: { notificacionsActives: enabled } },
+    );
+  });
+
+  it('conserva el valor false quan es torna a consultar el preferit', async () => {
+    jest.spyOn(Interaction, 'find').mockReturnValue({
+      sort: () => ({ populate: () => ({ lean: async () => [
+        { eventId: { _id: eventId }, notificacionsActives: false },
+      ] }) }),
+    });
+    const res = await auth(request(app).get('/users/me/favorites'));
+    expect(res.status).toBe(200);
+    expect(res.body.items).toEqual([{ id: eventId, isFavorite: true, notificacionsActives: false }]);
+  });
+
+  it('rebutja peticions sense sessió, amb ID invàlid o amb un valor no booleà', async () => {
+    expect((await request(app).patch(path).send({ notificacionsActives: true })).status).toBe(401);
+    expect((await auth(request(app).patch('/users/me/favorites/no-valid')).send({ notificacionsActives: true })).status).toBe(400);
+    expect((await auth(request(app).patch(path)).send({ notificacionsActives: 'false' })).status).toBe(400);
+    expect(Interaction.updateOne).not.toHaveBeenCalled();
+  });
+
+  it('retorna 404 si el preferit no existeix i 500 si falla la persistència', async () => {
+    Interaction.updateOne.mockResolvedValueOnce({ matchedCount: 0 })
+      .mockRejectedValueOnce(new Error('Mongo unavailable'));
+    expect((await auth(request(app).patch(path)).send({ notificacionsActives: false })).status).toBe(404);
+    expect((await auth(request(app).patch(path)).send({ notificacionsActives: false })).status).toBe(500);
   });
 });
