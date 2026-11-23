@@ -2,6 +2,7 @@ import {
   accentInsensitiveRegex,
   DEFAULT_NEARBY_RADIUS_KM,
   parseEventQuery,
+  MAX_NEARBY_LIMIT,
   parseNearbyQuery,
   parseSearchQuery,
   QueryError,
@@ -290,6 +291,36 @@ describe('parseNearbyQuery', () => {
   it('respecta radiusKm si s\'envia', () => {
     const r = parseNearbyQuery({ lat: '41.38', lng: '2.17', radiusKm: '3' }, NOW);
     expect(r.geo.maxDistance).toBe(3000);
+  });
+
+  describe('límit per a zones denses (#116)', () => {
+    const at = { lat: '41.38', lng: '2.17' };
+
+    it('manté el límit per defecte de 20', () => {
+      expect(parseNearbyQuery(at, NOW).limit).toBe(20);
+    });
+
+    it('admet el límit que demana el mapa (250), per sobre del màxim general', () => {
+      const r = parseNearbyQuery({ ...at, limit: '250' }, NOW);
+      expect(r.limit).toBe(250);
+      expect(r.skip).toBe(0);
+    });
+
+    it(`limita el límit a ${MAX_NEARBY_LIMIT} i continua paginant`, () => {
+      expect(parseNearbyQuery({ ...at, limit: '5000' }, NOW).limit).toBe(MAX_NEARBY_LIMIT);
+      expect(parseNearbyQuery({ ...at, limit: '500', page: '2' }, NOW).skip).toBe(500);
+    });
+
+    it('no canvia el màxim de 100 de GET /events ni de la cerca', () => {
+      expect(parseEventQuery({ ...at, limit: '250' }, NOW).limit).toBe(100);
+      expect(parseSearchQuery({ q: 'jazz', limit: '250' }, NOW).limit).toBe(100);
+    });
+
+    it('rebutja un límit no vàlid', () => {
+      for (const limit of ['0', '-5', 'molts', '2.5']) {
+        expect(() => parseNearbyQuery({ ...at, limit }, NOW)).toThrow(QueryError);
+      }
+    });
   });
 
   it('valida coordenades i radi com GET /events', () => {
