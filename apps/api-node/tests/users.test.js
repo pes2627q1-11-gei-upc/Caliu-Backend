@@ -1,3 +1,4 @@
+import Follow from '../src/models/Follow.js';
 import { jest } from '@jest/globals';
 import request from 'supertest';
 import jwt from 'jsonwebtoken';
@@ -441,5 +442,28 @@ describe('#170 alertes dels preferits', () => {
       .mockRejectedValueOnce(new Error('Mongo unavailable'));
     expect((await auth(request(app).patch(path)).send({ notificacionsActives: false })).status).toBe(404);
     expect((await auth(request(app).patch(path)).send({ notificacionsActives: false })).status).toBe(500);
+  });
+});
+
+describe('#61 seguiment', () => {
+  it.each(['post', 'delete'])('valida autenticació i destí amb %s', async (method) => {
+    const route = (id) => request(app)[method](`/users/${id}/follow`);
+    expect((await route(OTHER_ID)).status).toBe(401);
+    expect((await auth(route(ID))).status).toBe(400);
+    expect((await auth(route('invalid'))).status).toBe(400);
+    jest.spyOn(User, 'exists').mockResolvedValue(null);
+    expect((await auth(route(OTHER_ID))).status).toBe(404);
+  });
+
+  it('segueix i deixa de seguir només en la direcció demanada', async () => {
+    jest.spyOn(User, 'exists').mockResolvedValue({ _id: OTHER_ID });
+    jest.spyOn(Follow, 'updateOne').mockResolvedValue({});
+    jest.spyOn(Follow, 'deleteOne').mockResolvedValue({});
+    const relation = { follower: ID, followed: OTHER_ID };
+    const path = `/users/${OTHER_ID}/follow`;
+    expect((await auth(request(app).post(path))).status).toBe(204);
+    expect(Follow.updateOne).toHaveBeenCalledWith(relation, { $setOnInsert: relation }, { upsert: true });
+    expect((await auth(request(app).delete(path))).status).toBe(204);
+    expect(Follow.deleteOne).toHaveBeenCalledWith(relation);
   });
 });

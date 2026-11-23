@@ -1,3 +1,4 @@
+import Follow from './models/Follow.js';
 import app from './app.js';
 import { connectDB } from './config/db.js';
 import { getAuthConfig } from './config/auth.js';
@@ -14,6 +15,7 @@ async function start() {
   await connectDB();
   await initializeUserIndexes();
   await Interaction.createIndexes();
+  await Follow.createIndexes();
   await Session.init();
   await SessioXatbot.init();
   await MissatgeXatbot.init();

@@ -14,6 +14,28 @@ servers:
     description: API de Caliu a Render
 
 paths:
+  /users/{id}/follow:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema: { type: string }
+    post:
+      summary: Segueix un usuari
+      security: [{ bearerAuth: [] }]
+      responses:
+        '204': { description: Operació completada (idempotent) }
+        '400': { description: Id invàlid o usuari propi }
+        '401': { description: Sessió no vàlida }
+        '404': { description: Usuari no trobat }
+    delete:
+      summary: Deixa de seguir un usuari
+      security: [{ bearerAuth: [] }]
+      responses:
+        '204': { description: Operació completada (idempotent) }
+        '400': { description: Id invàlid o usuari propi }
+        '401': { description: Sessió no vàlida }
+        '404': { description: Usuari no trobat }
   /health:
     get:
       summary: Comprova que el servei funciona
