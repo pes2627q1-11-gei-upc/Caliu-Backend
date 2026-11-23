@@ -40,7 +40,7 @@ curl.exe https://caliu-api.onrender.com/health
 curl.exe "https://caliu-api.onrender.com/events?limit=3"
 ```
 
-Variables al servei: `MONGO_URI` (Atlas), `JWT_SECRET`. Root Directory: `apps/api-node`.
+Variables al servei `MONGO_URI` (Atlas) i `JWT_SECRET`. Consulteu el context Docker i el camí del Dockerfile a la [guia de desplegament](deploy.md#config-del-web-service-resum).
 
 ## On mirar després
 

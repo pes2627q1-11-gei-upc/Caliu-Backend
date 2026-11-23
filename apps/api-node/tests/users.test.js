@@ -1,3 +1,5 @@
+import Achievement from '../src/models/Achievement.js';
+import { catalog, seedAchievements } from '../src/domain/achievementCatalog.js';
 import Follow from '../src/models/Follow.js';
 import { jest } from '@jest/globals';
 import request from 'supertest';
@@ -486,5 +488,25 @@ describe('#178 perfil públic', () => {
     const res = await auth(request(app).get(path));
     expect(res.body).toEqual({ id: OTHER_ID, username: 'Núria', avatarUrl: null, sharedEventsCount: 1, isFollowing: true });
     expect(Interaction.countDocuments).toHaveBeenCalledWith({ userId: OTHER_ID, type: 'attended', eventId: { $in: ['event'] } });
+describe('#59 assoliments', () => {
+  it('inicialitza el catàleg amb upserts per id estable', async () => {
+    const write = jest.spyOn(Achievement, 'bulkWrite').mockResolvedValue({});
+    await seedAchievements();
+    expect(write.mock.calls[0][0]).toHaveLength(6);
+    expect(write.mock.calls[0][0][0].updateOne).toMatchObject({ filter: { _id: 'first-event' }, upsert: true });
+  });
+  it('calcula el progrés del compte i conserva els assoliments bloquejats', async () => {
+    expect((await request(app).get('/achievements')).status).toBe(401);
+    jest.spyOn(Achievement, 'find').mockReturnValue({ sort: () => ({ lean: async () => catalog }) });
+    jest.spyOn(Interaction, 'distinct').mockResolvedValue(['event']);
+    jest.spyOn(Interaction, 'countDocuments').mockResolvedValue(0);
+    jest.spyOn(Follow, 'countDocuments').mockResolvedValue(12);
+    jest.spyOn(Event, 'countDocuments').mockReturnValue({ collation: async () => 0 });
+    const res = await auth(request(app).get('/achievements'));
+    expect(res.status).toBe(200);
+    expect(res.body.items).toHaveLength(6);
+    expect(res.body.items[0]).toMatchObject({ id: 'first-event', progress: 1, unlocked: true });
+    expect(res.body.items[1]).toMatchObject({ id: 'explorer', progress: 1, unlocked: false });
+    expect(res.body.items[5]).toMatchObject({ id: 'social', progress: 5, unlocked: true });
   });
 });

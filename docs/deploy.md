@@ -10,19 +10,23 @@ URL actual: **https://caliu-api.onrender.com**
 |-------------|-----|
 | Health | https://caliu-api.onrender.com/health |
 | Esdeveniments | https://caliu-api.onrender.com/events?limit=3 |
+| Swagger UI | https://caliu-api.onrender.com/api-docs/ |
 
 ### Config del Web Service (resum)
 
 | Camp | Valor |
 |------|--------|
 | Repo | `Caliu-Backend` |
-| Root Directory | `apps/api-node` |
-| Dockerfile | `Dockerfile` (dins d’aquest directori) |
+| Root Directory | Buit (arrel del repositori) |
+| Dockerfile Path | `apps/api-node/Dockerfile` |
+| Docker Build Context Directory | `.` |
 | `MONGO_URI` | URI d’Atlas amb `/Caliu?...` |
 | `JWT_SECRET` | string llarg (només a Render) |
 | `CORS_ORIGINS` | `http://localhost:5000,https://pes2627q1-11-gei-upc.github.io` (Flutter Web de testing) |
 
 `PORT` el posa Render sol.
+
+Quan es publiqui Swagger UI, actualitzeu aquests tres camps alhora a **Settings → Build & Deploy**. El context a l’arrel permet incloure `docs/openapi.yaml` a la imatge. Seleccioneu Render a `/api-docs/` i executeu `GET /health` per comprovar el desplegament.
 
 ### Restricció de la clau de Google Maps
 
