@@ -10,6 +10,8 @@ info:
 servers:
   - url: http://localhost:3000
     description: "Local (Docker Compose). Des de l'emulador Android: http://10.0.2.2:3000"
+  - url: https://caliu-api.onrender.com
+    description: API de Caliu a Render
 
 paths:
   /health:
