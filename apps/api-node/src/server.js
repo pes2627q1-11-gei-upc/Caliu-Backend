@@ -1,3 +1,4 @@
+import { seedAchievements } from './domain/achievementCatalog.js';
 import Follow from './models/Follow.js';
 import app from './app.js';
 import { connectDB } from './config/db.js';
@@ -16,6 +17,7 @@ async function start() {
   await initializeUserIndexes();
   await Interaction.createIndexes();
   await Follow.createIndexes();
+  await seedAchievements();
   await Session.init();
   await SessioXatbot.init();
   await MissatgeXatbot.init();

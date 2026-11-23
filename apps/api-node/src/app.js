@@ -1,3 +1,5 @@
+import { noStore, requireAuth } from './middlewares/auth.js';
+import { listAchievements } from './controllers/achievements.controller.js';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
 import swaggerUi from 'swagger-ui-express';
@@ -22,6 +24,7 @@ app.get('/health', (_req, res) => {
   res.json({ status: 'ok', service: 'api-node' });
 });
 
+app.get('/achievements', noStore, requireAuth, listAchievements);
 app.get('/api-docs/openapi.yaml', (_req, res) => {
   res.type('application/yaml').sendFile(openApiPath);
 });
