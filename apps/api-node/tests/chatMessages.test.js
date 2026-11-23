@@ -374,3 +374,77 @@ describe('POST /chat/messages', () => {
     expect(proxyToPython).toHaveBeenCalledTimes(10);
   });
 });
+
+describe('POST /chat/sessions (#161)', () => {
+  const CREATED_AT = new Date('2026-11-23T10:00:00.000Z');
+
+  beforeEach(() => {
+    SessioXatbot.create.mockImplementation(async (values) => ({
+      _id: CHAT_SESSION_ID,
+      createdAt: CREATED_AT,
+      ...values,
+    }));
+  });
+
+  it('creates an empty session for the authenticated user', async () => {
+    const res = await auth(request(app).post('/chat/sessions'));
+
+    expect(res.status).toBe(201);
+    expect(res.headers['cache-control']).toBe('no-store');
+    expect(res.body).toEqual({ sessionId: CHAT_SESSION_ID, createdAt: CREATED_AT.toISOString() });
+    expect(SessioXatbot.create).toHaveBeenCalledWith({ userId: USER_ID });
+    expect(MissatgeXatbot.create).not.toHaveBeenCalled();
+    expect(proxyToPython).not.toHaveBeenCalled();
+  });
+
+  it('accepts an empty JSON body', async () => {
+    const res = await auth(request(app).post('/chat/sessions').send({}));
+
+    expect(res.status).toBe(201);
+  });
+
+  it.each([
+    ['another user id', { userId: OTHER_USER_ID }],
+    ['an unknown field', { title: 'Nova conversa' }],
+    ['an array', []],
+  ])('rejects a body with %s', async (_name, body) => {
+    const res = await auth(request(app).post('/chat/sessions').send(body));
+
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ error: 'Cos de la petició no vàlid', code: 'INVALID_BODY' });
+    expect(SessioXatbot.create).not.toHaveBeenCalled();
+  });
+
+  it('requires a valid JWT', async () => {
+    const missing = await request(app).post('/chat/sessions');
+    const invalid = await request(app).post('/chat/sessions').auth('no-es-un-jwt', { type: 'bearer' });
+
+    expect(missing.status).toBe(401);
+    expect(invalid.status).toBe(401);
+    expect(SessioXatbot.create).not.toHaveBeenCalled();
+  });
+
+  it('returns 500 without internal details if the session cannot be stored', async () => {
+    SessioXatbot.create.mockRejectedValueOnce(new Error('mongodb://user:secret@host'));
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    const res = await auth(request(app).post('/chat/sessions'));
+
+    expect(res.status).toBe(500);
+    expect(res.body).toEqual({ error: 'Error intern del servidor' });
+  });
+
+  it('starts the new session without the history of previous ones', async () => {
+    const { body: { sessionId } } = await auth(request(app).post('/chat/sessions'));
+
+    const res = await auth(request(app).post('/chat/messages').send({ message: 'I el de dissabte?', sessionId }));
+
+    expect(res.status).toBe(200);
+    expect(res.body.sessionId).toBe(sessionId);
+    expect(MissatgeXatbot.find).toHaveBeenCalledWith({ sessionId });
+    expect(proxyToPython).toHaveBeenCalledWith(expect.objectContaining({
+      body: expect.objectContaining({ history: [] }),
+    }));
+    expect(SessioXatbot.create).toHaveBeenCalledTimes(1);
+  });
+});

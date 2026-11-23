@@ -10,6 +10,8 @@ info:
 servers:
   - url: http://localhost:3000
     description: "Local (Docker Compose). Des de l'emulador Android: http://10.0.2.2:3000"
+  - url: https://caliu-api.onrender.com
+    description: API de Caliu a Render
 
 paths:
   /users/{id}/follow:
@@ -74,11 +76,62 @@ paths:
                   status: { type: string, example: ok }
                   service: { type: string, example: api-node }
 
+  /chat/sessions:
+    post:
+      summary: Crea una sessió de xat nova ("Nova conversa")
+      description: |
+        Crea una sessió buida per a l'usuari autenticat (#161, HU #47). Els missatges que s'enviïn amb
+        aquest `sessionId` a `POST /chat/messages` no porten cap context de les sessions anteriors.
+        Les sessions anteriors i els seus missatges no s'esborren (es conserven per a l'historial).
+        No admet cos; si se n'envia, ha de ser buit (`{}`). Comparteix el límit de 10 peticions per minut
+        i usuari amb `POST /chat/messages`.
+      security:
+        - bearerAuth: []
+      responses:
+        '201':
+          description: Sessió creada.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [sessionId, createdAt]
+                properties:
+                  sessionId: { type: string, example: "6710f1c2a1b2c3d4e5f60718" }
+                  createdAt: { type: string, format: date-time }
+        '400':
+          description: |
+            El cos porta camps (`INVALID_BODY`). Un cos que no és JSON vàlid dona l'error comú
+            `{ error: "JSON no vàlid" }`, sense `code`.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - { $ref: '#/components/schemas/ChatError' }
+                  - { $ref: '#/components/schemas/Error' }
+              example: { error: Cos de la petició no vàlid, code: INVALID_BODY }
+        '401':
+          description: Sense JWT vàlid (error comú de l'API, sense `code`). Cal tornar a iniciar sessió.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '429':
+          description: Límit de peticions de xat assolit (`RATE_LIMITED`). Es pot reintentar quan indiqui `Retry-After`.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChatError' }
+              example: { error: Has arribat al límit de missatges; torna-ho a provar més tard, code: RATE_LIMITED }
+        '500':
+          description: Error intern de persistència (error comú de l'API, sense `code`).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
   /chat/messages:
     post:
       summary: Envia un missatge al xatbot
       description: |
-        Crea una sessió de xat nova si no s'envia `sessionId`. La sessió existent
+        Crea una sessió de xat nova si no s'envia `sessionId` (també es pot crear abans amb
+        `POST /chat/sessions`). La sessió existent
         ha de pertànyer a l'usuari autenticat. Envia al model els últims deu missatges
         de la sessió (màxim 1000 caràcters per missatge) com a context. Desa el missatge
         i la resposta només si Python respon.
@@ -745,7 +798,7 @@ components:
     ChatError:
       type: object
       description: |
-        Error de `POST /chat/messages` (#143). `error` és un missatge per mostrar a l'usuari i `code` un
+        Error de `POST /chat/messages` i `POST /chat/sessions` (#143, #161). `error` és un missatge per mostrar a l'usuari i `code` un
         identificador estable perquè l'app decideixi què fer sense dependre del text.
 
         | Codi | HTTP | Reintentar? |
