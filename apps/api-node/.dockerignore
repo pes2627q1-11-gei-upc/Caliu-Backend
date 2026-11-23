@@ -1,6 +1,0 @@
-node_modules
-tests
-coverage
-.env
-*.env.local
-npm-debug.log*
