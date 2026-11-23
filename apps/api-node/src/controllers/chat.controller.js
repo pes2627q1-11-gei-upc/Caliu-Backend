@@ -32,6 +32,20 @@ function validateMessage(body) {
   return { message, locale: body.locale };
 }
 
+// "Nova conversa" (#161, HU #47): crea una sessió buida. Els missatges que s'hi enviïn no porten
+// cap context de les sessions anteriors, que es conserven per a l'historial (#48).
+export async function createChatSession(req, res, next) {
+  if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body) || Object.keys(req.body).length) {
+    return res.status(400).json({ error: 'Cos de la petició no vàlid', code: 'INVALID_BODY' });
+  }
+  try {
+    const chatSession = await SessioXatbot.create({ userId: req.user._id });
+    return res.status(201).json({ sessionId: String(chatSession._id), createdAt: chatSession.createdAt });
+  } catch (err) {
+    return next(err);
+  }
+}
+
 export async function postChatMessage(req, res, next) {
   const validated = validateMessage(req.body);
   if (validated.error) return res.status(400).json({ error: validated.error, code: validated.code });
