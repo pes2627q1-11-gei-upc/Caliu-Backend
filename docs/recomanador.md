@@ -45,9 +45,12 @@ npm run recommender:weights -- favoriteCategories=4 favoriteTags=0.5
 npm run recommender:weights -- --reset                        # torna als pesos per defecte
 ```
 
-El `--` passa els arguments a l'script. Cada argument té el format `pes=valor`.
+El `--` passa els arguments a l'script. Cada argument té el format `pes=valor`. Amb `--reset`, qualsevol
+altre argument s'ignora: només es restableixen els pesos per defecte.
 
-**Amb Docker Compose** (el contenidor ja té `MONGO_URI`):
+**Amb Docker Compose** el contenidor ja té `MONGO_URI`, però **no sempre apunta al Mongo local**: fa servir
+`API_MONGO_URI` si està definit al `.env` (Atlas, dades reals) i, si no, el Mongo local de Compose.
+Per provar valors, comproveu que `API_MONGO_URI` no estigui definit (o comenteu-lo) abans d'executar l'ordre:
 
 ```powershell
 docker compose exec api-node npm run recommender:weights -- proximity=3
@@ -77,5 +80,6 @@ perquè no surti la URI de la base de dades.
 - Només pot canviar els pesos qui té accés a la base de dades (`MONGO_URI`). No hi ha cap ruta a l'API per
   fer-ho, així que un usuari de l'app no els pot modificar.
 - **Contra Atlas el canvi afecta les recomanacions reals a l'instant.** Proveu els valors primer amb el Mongo
-  local de Docker Compose.
+  local de Docker Compose, comprovant abans que `API_MONGO_URI` no estigui definit al `.env`: si ho està,
+  `docker compose exec api-node …` modifica Atlas encara que s'executi en local.
 - Abans de canviar-los, consulteu els vigents (`npm run recommender:weights`) per poder-los recuperar.
