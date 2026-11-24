@@ -504,6 +504,52 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
 
+  /events/nearby:
+    get:
+      summary: Esdeveniments propers a un punt (mapa)
+      description: |
+        Mateixos filtres i resposta que GET /events, però `lat` i `lng` són obligatoris, sempre hi ha un
+        radi (10 km si no s'envia `radiusKm`) i els resultats s'ordenen per distància, amb `distanceMeters`.
+        És la consulta del mapa: en zones denses (#116, HU #6) l'app demana d'un sol cop tots els
+        esdeveniments de la regió visible i els agrupa en clústers. Per això `limit` admet fins a **500**,
+        per sobre del màxim de 100 de GET /events. Un valor més gran es limita a 500 i, si `total` és més
+        gran que `limit`, hi ha més esdeveniments a la zona (`page` per obtenir-los o un radi més petit).
+        Públic: no inclou `isFavorite`.
+      parameters:
+        - { name: lat, in: query, required: true, schema: { type: number, minimum: -90, maximum: 90 } }
+        - { name: lng, in: query, required: true, schema: { type: number, minimum: -180, maximum: 180 } }
+        - { name: radiusKm, in: query, schema: { type: number, minimum: 0.1, maximum: 500, default: 10 }, description: "Radi en km al voltant de (lat, lng)." }
+        - { name: q, in: query, schema: { type: string }, description: "Text lliure: títol, lloc, municipi o etiqueta" }
+        - { name: category, in: query, schema: { type: string }, description: "Una o més categories separades per coma (vegeu /events/categories)", example: "Música,Teatre" }
+        - { name: tag, in: query, schema: { type: string }, description: "Una o més etiquetes separades per coma" }
+        - { name: comarca, in: query, schema: { type: string } }
+        - { name: municipality, in: query, schema: { type: string } }
+        - { name: price, in: query, schema: { type: string, enum: [free, paid] }, description: "'free' per a esdeveniments gratuïts (preu 0) o 'paid' per als de pagament (preu > 0)" }
+        - { name: from, in: query, schema: { type: string, format: date-time }, description: "Inici de l'interval. Per defecte, ara." }
+        - { name: to, in: query, schema: { type: string, format: date-time }, description: "Final de l'interval" }
+        - { name: page, in: query, schema: { type: integer, minimum: 1, default: 1 } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 500, default: 20 }, description: "Màxim 500 (els valors més grans es limiten a 500)." }
+      responses:
+        '200':
+          description: Pàgina d'esdeveniments, del més proper al més llunyà
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    description: Cada element inclou `distanceMeters`.
+                    items: { $ref: '#/components/schemas/Event' }
+                  page: { type: integer }
+                  limit: { type: integer }
+                  total: { type: integer, description: "Total d'esdeveniments de la zona que compleixen el filtre" }
+        '400':
+          description: Falten `lat`/`lng` o hi ha un paràmetre invàlid
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
   /events/categories:
     get:
       summary: Categories disponibles per al filtre
