@@ -157,7 +157,7 @@ live = pytest.mark.skipif(
 )
 
 # Saturació, límit del pla gratuït o temps esgotat: el test se salta en lloc de fallar.
-TRANSIENT = ("503", "UNAVAILABLE", "429", "RESOURCE_EXHAUSTED", "timed out", "Timeout")
+TRANSIENT = ("503", "UNAVAILABLE", "504", "DEADLINE_EXCEEDED", "429", "RESOURCE_EXHAUSTED", "timed out", "Timeout")
 MAX_RETRY_WAIT_S = 90
 GEMINI_TIMEOUT_MS = 30_000
 

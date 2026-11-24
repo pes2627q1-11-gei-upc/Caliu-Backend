@@ -113,7 +113,7 @@ def test_declaration_uses_shared_categories():
     assert props["categories"]["items"]["enum"] == EVENT_CATEGORIES
     assert set(props) == {
         "date_from", "date_to", "municipality", "comarca", "time_of_day", "categories",
-        "audience", "max_price", "free",
+        "audience", "max_price", "free", "itinerary",
     }
 
 
@@ -157,7 +157,7 @@ def test_default_client_has_timeout(monkeypatch):
     monkeypatch.setattr(intent, "_client", None)
     monkeypatch.setattr(google.genai, "Client", lambda **kwargs: created.update(kwargs) or "client")
     assert intent._default_client() == "client"
-    assert created["http_options"] == {"timeout": intent.GEMINI_TIMEOUT_MS}
+    assert created["http_options"] == {"timeout": 15_000}  # GEMINI_TIMEOUT_MS per defecte (#142)
     monkeypatch.setattr(intent, "_client", None)
 
 

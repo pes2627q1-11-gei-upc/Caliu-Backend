@@ -2,19 +2,22 @@ import json
 import logging
 import os
 import re
+import unicodedata
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from zoneinfo import ZoneInfo
 
+from google.genai.errors import APIError
 from pymongo import MongoClient
 from pymongo.collation import Collation
 
 from app.chatbot.catalog import AUDIENCE_TAGS, TIME_OF_DAY, TIMEZONE
-from app.chatbot.gemini_client import GeminiClient
+from app.chatbot.gemini_client import GeminiClient, GeminiResponseError, GeminiUnavailableError
 from app.chatbot.intent import EventFilters, IntentExtractionError, WEEKDAYS_CA, _at, extract_filters
 
 EVENTS_COLLECTION = "esdeveniments"
 MAX_CONTEXT_EVENTS = 20
+MAX_RECOMMENDED_EVENTS = 3
 MAX_DESCRIPTION_LENGTH = 400
 UPCOMING_DAYS = 7
 MAX_SLOT_DAYS = 31
@@ -52,6 +55,11 @@ EVENT_FIELDS = (
     "tags",
     "price",
     "url",
+)
+EVENT_CARD_FIELDS = (
+    "code",
+    "location",
+    "images",
 )
 MAX_HISTORY_MESSAGE_LENGTH = 1000
 
@@ -131,7 +139,8 @@ def retrieve_upcoming_events(
     if query is None:
         return [], 0
     start = max(filters.from_ or now, now)
-    projection = {field: 1 for field in EVENT_FIELDS}
+    # `location` (a EVENT_CARD_FIELDS) també el fa servir l'itinerari (#140); no s'envia a Gemini.
+    projection = {field: 1 for field in (*EVENT_FIELDS, *EVENT_CARD_FIELDS)}
     projection["_id"] = 1
     source = collection if collection is not None else _events_collection()
     collation = LOCATION_COLLATION if filters.municipality or filters.comarca else None
@@ -206,6 +215,22 @@ def _local_datetime(value):
     return value.astimezone(TZ).isoformat()
 
 
+def _api_datetime(value):
+    if not isinstance(value, datetime):
+        return value
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+def _normalize_text(value: str) -> str:
+    folded = "".join(
+        char for char in unicodedata.normalize("NFD", value.casefold())
+        if unicodedata.category(char) != "Mn"
+    )
+    return re.sub(r"\s+", " ", folded).strip()
+
+
 def _event_context(events: list[dict], total: int) -> str:
     records = []
     for event in events:
@@ -246,7 +271,8 @@ def build_system_instruction(now: datetime | None = None, language_name: str | N
         "Ets l'assistent de Caliu, una aplicació per descobrir activitats culturals a Catalunya. "
         f"Respon de manera propera i breu, en la llengua de l'usuari.{language_rule}\n"
         f"Avui és {today} i són les {local_now.strftime('%H:%M')} (hora de Catalunya).\n"
-        "Recomana com a màxim tres esdeveniments. Escriu text pla amb l'activitat, la data, "
+        "Recomana com a màxim tres esdeveniments. Quan en recomanis un, copia'n el títol "
+        "exactament com apareix al context. Escriu text pla amb l'activitat, la data, "
         "l'hora i el lloc quan constin, i inclou l'enllaç si està disponible. "
         "El preu «Gratuït» indica que price és 0; «Desconegut» vol dir que no hi ha informació "
         "de preu.\n"
@@ -262,15 +288,42 @@ def build_system_instruction(now: datetime | None = None, language_name: str | N
     )
 
 
-def answer_with_events(
+# Gemini no ha pogut respondre (#142). Porta els esdeveniments ja recuperats perquè la resposta
+# alternativa no hagi de tornar a consultar Mongo.
+class AnswerUnavailableError(Exception):
+    def __init__(self, events: list[dict], alternatives: bool):
+        super().__init__("Gemini no ha pogut respondre")
+        self.events = events
+        self.alternatives = alternatives
+
+
+# Esdeveniments per respondre (#142): els que compleixen els filtres i, si no n'hi ha cap, un suggeriment
+# més general (les mateixes dates sense la resta de criteris i, si tampoc, els propers dies). El tercer
+# valor indica si són alternatives. Una data passada no s'amplia: s'ha d'explicar que ja ha passat.
+def select_events(now: datetime | None, filters: EventFilters, collection=None) -> tuple[list[dict], int, bool]:
+    events, total = retrieve_upcoming_events(now=now, filters=filters, collection=collection)
+    if events or filters.date_passed or filters.is_empty():
+        return events, total, False
+    broader = []
+    if filters.from_ or filters.to:
+        broader.append(EventFilters(from_=filters.from_, to=filters.to, time_of_day=filters.time_of_day))
+    broader.append(EventFilters())
+    for wider in broader:
+        if wider == filters:
+            continue
+        events, total = retrieve_upcoming_events(now=now, filters=wider, collection=collection)
+        if events:
+            return events, total, True
+    return [], 0, False
+
+
+# Filtres del missatge, amb els missatges anteriors de l'usuari com a context. Si Gemini falla, sense filtres.
+def extract_message_filters(
     message: str,
     now: datetime | None = None,
-    client=None,
-    collection=None,
-    filter_extractor=None,
     history: list[dict] | None = None,
-    language_name: str | None = None,
-) -> str:
+    filter_extractor=None,
+) -> EventFilters:
     try:
         previous_user_messages = [
             item["content"][:MAX_HISTORY_MESSAGE_LENGTH]
@@ -287,12 +340,57 @@ def answer_with_events(
                 "Missatge actual (té prioritat):\n"
                 f"{message}"
             )
-        filters = (filter_extractor or extract_filters)(filter_message, now=now)
+        return (filter_extractor or extract_filters)(filter_message, now=now)
     except IntentExtractionError:
         logger.warning("No s'han pogut extreure filtres del missatge; es continua sense filtres")
-        filters = EventFilters()
-    events, total = retrieve_upcoming_events(now=now, filters=filters, collection=collection)
-    if not events and (filters.municipality or filters.comarca):
+        return EventFilters()
+
+
+# Targetes clicables (#54): esdeveniments del context que la resposta esmenta pel títol, com a molt
+# MAX_RECOMMENDED_EVENTS, amb les dades que necessita el frontend.
+def _event_cards(reply, events: list[dict]) -> list[dict]:
+    normalized_reply = _normalize_text(reply) if isinstance(reply, str) else ""
+    cards = []
+    for event in events:
+        title = event.get("title")
+        if not isinstance(title, str) or not title.strip():
+            continue
+        normalized_title = _normalize_text(title)
+        if not normalized_reply or not re.search(
+            rf"(?<!\w){re.escape(normalized_title)}(?!\w)",
+            normalized_reply,
+        ):
+            continue
+
+        card = {
+            "id": str(event["_id"]),
+            **{field: event[field] for field in (*EVENT_FIELDS, *EVENT_CARD_FIELDS) if field in event},
+        }
+        for field in ("startDate", "endDate"):
+            if field in card:
+                card[field] = _api_datetime(card[field])
+        cards.append(card)
+        if len(cards) == MAX_RECOMMENDED_EVENTS:
+            break
+    return cards
+
+
+# Resposta de text i targetes. `filters` permet reaprofitar uns filtres ja extrets (#140); si no, s'extreuen.
+def answer_with_events_and_cards(
+    message: str,
+    now: datetime | None = None,
+    client=None,
+    collection=None,
+    filter_extractor=None,
+    history: list[dict] | None = None,
+    language_name: str | None = None,
+    filters: EventFilters | None = None,
+) -> tuple[str, list[dict]]:
+    if filters is None:
+        filters = extract_message_filters(message, now, history, filter_extractor)
+    events, total, alternatives = select_events(now, filters, collection)
+    # La cerca demanada no ha trobat res (tant si hi ha alternatives com si no).
+    if (alternatives or not events) and (filters.municipality or filters.comarca):
         requested_place = filters.municipality or filters.comarca
         location_note = (
             f"No s'han trobat esdeveniments per a «{requested_place}». "
@@ -302,8 +400,17 @@ def answer_with_events(
         location_note = ""
     if filters.date_passed:
         context_note = "La data demanada ja ha passat; explica-ho clarament i no recomanis altres dates.\n"
+    elif alternatives:
+        context_note = (
+            "No s'han trobat esdeveniments amb els criteris demanats. Comença dient-ho de manera clara i amable "
+            "(p. ex. «No he trobat activitats per aquests criteris») i, com a suggeriment més general, proposa "
+            "alguns d'aquests esdeveniments deixant clar que no compleixen tots els criteris.\n"
+        )
     elif not events:
-        context_note = "No s'han trobat esdeveniments coincidents amb la cerca.\n"
+        context_note = (
+            "No s'han trobat esdeveniments coincidents amb la cerca, ni tampoc propostes més generals. "
+            "Digues-ho de manera clara i amable i suggereix ampliar la cerca (una altra data, zona o categoria).\n"
+        )
     else:
         context_note = ""
     history_context = ""
@@ -322,9 +429,38 @@ def answer_with_events(
         f"{safe_message}\n"
         "</missatge_usuari>"
     )
-    return (client or GeminiClient()).generate(
-        prompt,
-        system_instruction=build_system_instruction(now, language_name),
-        temperature=0.25,
-        max_output_tokens=2048,
+    # Fora del try: sense GEMINI_API_KEY és un error de configuració (503), no una resposta alternativa.
+    client = client or GeminiClient()
+    try:
+        reply = client.generate(
+            prompt,
+            system_instruction=build_system_instruction(now, language_name),
+            temperature=0.25,
+            max_output_tokens=2048,
+        )
+    except (GeminiUnavailableError, GeminiResponseError, APIError) as exc:
+        raise AnswerUnavailableError(events, alternatives) from exc
+    return reply, _event_cards(reply, events)
+
+
+def answer_with_events(
+    message: str,
+    now: datetime | None = None,
+    client=None,
+    collection=None,
+    filter_extractor=None,
+    history: list[dict] | None = None,
+    language_name: str | None = None,
+    filters: EventFilters | None = None,
+) -> str:
+    reply, _ = answer_with_events_and_cards(
+        message,
+        now=now,
+        client=client,
+        collection=collection,
+        filter_extractor=filter_extractor,
+        history=history,
+        language_name=language_name,
+        filters=filters,
     )
+    return reply

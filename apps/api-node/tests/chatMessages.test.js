@@ -7,6 +7,7 @@ import SessioXatbot from '../src/models/SessioXatbot.js';
 import MissatgeXatbot from '../src/models/MissatgeXatbot.js';
 import User from '../src/models/User.js';
 import { chatRateLimiter } from '../src/middlewares/chatRateLimit.js';
+import { httpError } from '../src/domain/httpError.js';
 
 const proxyToPython = jest.fn();
 jest.unstable_mockModule('../src/integrations/pythonService.js', () => ({ proxyToPython }));
@@ -63,7 +64,10 @@ beforeEach(() => {
     limit: jest.fn().mockReturnThis(),
     lean: jest.fn().mockResolvedValue([]),
   });
-  proxyToPython.mockReset().mockResolvedValue({ reply: 'Et recomano un concert.' });
+  proxyToPython.mockReset().mockResolvedValue({
+    reply: 'Et recomano un concert.',
+    events: [{ id: 'event-1', title: 'Concert de prova' }],
+  });
 });
 
 afterEach(() => jest.restoreAllMocks());
@@ -81,7 +85,13 @@ describe('POST /chat/messages', () => {
 
     expect(res.status).toBe(200);
     expect(res.headers['cache-control']).toBe('no-store');
-    expect(res.body).toEqual({ sessionId: CHAT_SESSION_ID, reply: 'Et recomano un concert.' });
+    expect(res.body).toEqual({
+      sessionId: CHAT_SESSION_ID,
+      type: 'text',
+      reply: 'Et recomano un concert.',
+      events: [{ id: 'event-1', title: 'Concert de prova' }],
+      filters: null,
+    });
     expect(SessioXatbot.create).toHaveBeenCalledWith({ userId: USER_ID });
     expect(MissatgeXatbot.create).toHaveBeenNthCalledWith(1, {
       sessionId: CHAT_SESSION_ID,
@@ -98,6 +108,64 @@ describe('POST /chat/messages', () => {
       role: 'assistant',
       content: 'Et recomano un concert.',
     });
+  });
+
+  it('returns the plan of an itinerary and stores its text in the history (#140)', async () => {
+    const plan = {
+      date: '2026-11-21',
+      steps: [{ order: 1, id: 'a', title: 'Visita guiada al Call', start: '2026-11-21T10:30:00+01:00' }],
+    };
+    proxyToPython.mockResolvedValueOnce({ type: 'plan', reply: 'Aquí tens un itinerari…', plan, language: 'ca' });
+
+    const res = await auth(request(app).post('/chat/messages').send({ message: 'fes-me un itinerari' }));
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      sessionId: CHAT_SESSION_ID, type: 'plan', reply: 'Aquí tens un itinerari…', events: [], filters: null, plan,
+    });
+    expect(MissatgeXatbot.create).toHaveBeenNthCalledWith(2, {
+      sessionId: CHAT_SESSION_ID,
+      role: 'assistant',
+      content: 'Aquí tens un itinerari…',
+    });
+  });
+
+  it.each([
+    { type: 'plan', reply: 'Text', plan: { steps: [] } },
+    { type: 'plan', reply: 'Text', plan: { steps: 'no' } },
+    { type: 'plan', reply: 'Text' },
+    { type: 'altre', reply: 'Text', plan: { steps: [{ order: 1 }] } },
+  ])('treats an invalid plan as a text answer %#', async (result) => {
+    proxyToPython.mockResolvedValueOnce(result);
+    const res = await auth(request(app).post('/chat/messages').send({ message: 'itinerari' }));
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ sessionId: CHAT_SESSION_ID, type: 'text', reply: 'Text', events: [], filters: null });
+  });
+
+  it('returns the fallback answer without storing it, so the message can be sent again (#142)', async () => {
+    proxyToPython.mockResolvedValueOnce({ type: 'fallback', reply: 'Ara mateix no puc respondre…', language: 'ca' });
+
+    const res = await auth(request(app).post('/chat/messages').send({ message: 'plans per avui?' }));
+
+    expect(res.status).toBe(200);
+    // Conversa nova: no es crea cap sessió buida.
+    expect(res.body).toEqual({
+      sessionId: null, type: 'fallback', reply: 'Ara mateix no puc respondre…', events: [], filters: null,
+    });
+    expect(SessioXatbot.create).not.toHaveBeenCalled();
+    expect(MissatgeXatbot.create).not.toHaveBeenCalled();
+  });
+
+  it('keeps the existing session on a fallback answer', async () => {
+    proxyToPython.mockResolvedValueOnce({ type: 'fallback', reply: 'Ara mateix no puc respondre…' });
+
+    const res = await auth(request(app).post('/chat/messages').send({ message: 'i demà?', sessionId: CHAT_SESSION_ID }));
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      sessionId: CHAT_SESSION_ID, type: 'fallback', reply: 'Ara mateix no puc respondre…', events: [], filters: null,
+    });
+    expect(MissatgeXatbot.create).not.toHaveBeenCalled();
   });
 
   it('uses an existing session only when it belongs to the authenticated user', async () => {
@@ -154,20 +222,25 @@ describe('POST /chat/messages', () => {
     }));
 
     expect(notOwned.status).toBe(404);
-    expect(notOwned.body).toEqual({ error: 'Sessió de xat no trobada' });
+    expect(notOwned.body).toEqual({ error: 'Sessió de xat no trobada', code: 'SESSION_NOT_FOUND' });
     expect(malformed.status).toBe(400);
+    expect(malformed.body).toEqual({ error: 'Camp "sessionId" no vàlid', code: 'INVALID_SESSION_ID' });
     expect(proxyToPython).not.toHaveBeenCalled();
   });
 
   it.each([
-    {},
-    { message: '  ' },
-    { message: 'x'.repeat(501) },
-    { message: 'hola', userId: OTHER_USER_ID },
-  ])('validates message input before creating chat data', async (body) => {
+    [{}, 'MESSAGE_REQUIRED'],
+    [{ message: '  ' }, 'MESSAGE_REQUIRED'],
+    [{ message: 42 }, 'MESSAGE_REQUIRED'],
+    [{ message: 'x'.repeat(501) }, 'MESSAGE_TOO_LONG'],
+    [{ message: 'hola', userId: OTHER_USER_ID }, 'INVALID_BODY'],
+    [{ message: 'hola', locale: 'fr' }, 'INVALID_LOCALE'],
+    [{ message: 'hola', locale: 3 }, 'INVALID_LOCALE'],
+  ])('validates message input before creating chat data %#', async (body, code) => {
     const res = await auth(request(app).post('/chat/messages').send(body));
 
     expect(res.status).toBe(400);
+    expect(res.body).toEqual({ error: expect.any(String), code });
     expect(SessioXatbot.create).not.toHaveBeenCalled();
     expect(MissatgeXatbot.create).not.toHaveBeenCalled();
     expect(proxyToPython).not.toHaveBeenCalled();
@@ -178,6 +251,33 @@ describe('POST /chat/messages', () => {
 
     expect(res.status).toBe(401);
     expect(SessioXatbot.create).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [503, 'CHATBOT_UNAVAILABLE', 'El servei de xatbot no està disponible'],
+    [503, 'EVENTS_UNAVAILABLE', 'El servei d\'esdeveniments no està disponible'],
+    [504, 'CHATBOT_TIMEOUT', 'El servei de xatbot ha tardat massa a respondre'],
+    [502, 'CHATBOT_ERROR', 'El servei de xatbot ha fallat'],
+  ])('returns %i %s with its message so the app can offer a retry (#143)', async (status, code, error) => {
+    proxyToPython.mockRejectedValueOnce(httpError(status, error, code));
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    const res = await auth(request(app).post('/chat/messages').send({ message: 'teatre' }));
+
+    expect(res.status).toBe(status);
+    expect(res.body).toEqual({ error, code });
+    expect(MissatgeXatbot.create).not.toHaveBeenCalled();
+  });
+
+  it('returns CHATBOT_INVALID_RESPONSE if Python answers without text', async () => {
+    proxyToPython.mockResolvedValueOnce({ reply: '  ' });
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    const res = await auth(request(app).post('/chat/messages').send({ message: 'teatre' }));
+
+    expect(res.status).toBe(502);
+    expect(res.body).toEqual({ error: 'Resposta del servei de xatbot no vàlida', code: 'CHATBOT_INVALID_RESPONSE' });
+    expect(MissatgeXatbot.create).not.toHaveBeenCalled();
   });
 
   it('does not create a session or store messages if Python fails', async () => {
@@ -192,6 +292,73 @@ describe('POST /chat/messages', () => {
     expect(res.body).toEqual({ error: 'Error intern del servidor' });
   });
 
+  it('returns an empty events list when Python does not provide events', async () => {
+    proxyToPython.mockResolvedValueOnce({ reply: 'Et recomano un concert.' });
+
+    const res = await auth(request(app).post('/chat/messages').send({ message: 'teatre' }));
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      sessionId: CHAT_SESSION_ID,
+      type: 'text',
+      reply: 'Et recomano un concert.',
+      events: [],
+      filters: null,
+    });
+    expect(SessioXatbot.create).toHaveBeenCalledWith({ userId: USER_ID });
+    expect(MissatgeXatbot.create).toHaveBeenCalledTimes(2);
+  });
+
+  it('forwards the app locale to Python', async () => {
+    const res = await auth(request(app).post('/chat/messages').send({ message: 'ok', locale: 'es' }));
+
+    expect(res.status).toBe(200);
+    expect(proxyToPython).toHaveBeenCalledWith({
+      path: '/chat/messages',
+      token: token,
+      body: { message: 'ok', history: [], locale: 'es' },
+    });
+  });
+
+  it('returns the filters interpreted by Python', async () => {
+    const filters = {
+      from: '2026-11-18T15:00:00+01:00',
+      to: '2026-11-18T20:00:00+01:00',
+      timeOfDay: 'tarda',
+      categories: [],
+      audience: 'infantil',
+      maxPrice: 0,
+    };
+    proxyToPython.mockResolvedValueOnce({ reply: 'Et recomano un taller.', events: [], filters });
+
+    const res = await auth(request(app).post('/chat/messages').send({ message: 'nens a la tarda' }));
+
+    expect(res.status).toBe(200);
+    expect(res.body.filters).toEqual(filters);
+  });
+
+  it('ignores malformed filters from Python', async () => {
+    proxyToPython.mockResolvedValueOnce({ reply: 'Et recomano un taller.', events: [], filters: ['tarda'] });
+
+    const res = await auth(request(app).post('/chat/messages').send({ message: 'nens a la tarda' }));
+
+    expect(res.status).toBe(200);
+    expect(res.body.filters).toBeNull();
+  });
+
+  it('rejects a Python response with an invalid reply', async () => {
+    proxyToPython.mockResolvedValueOnce({ reply: '  ', events: [] });
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    const res = await auth(request(app).post('/chat/messages').send({ message: 'teatre' }));
+
+    expect(res.status).toBe(502);
+    // #143: l'error porta el seu codi i un missatge propi en lloc del genèric.
+    expect(res.body).toEqual({ error: 'Resposta del servei de xatbot no vàlida', code: 'CHATBOT_INVALID_RESPONSE' });
+    expect(SessioXatbot.create).not.toHaveBeenCalled();
+    expect(MissatgeXatbot.create).not.toHaveBeenCalled();
+  });
+
   it('limits requests per authenticated user', async () => {
     const responses = [];
     for (let i = 0; i < 11; i += 1) {
@@ -202,7 +369,82 @@ describe('POST /chat/messages', () => {
     expect(responses[10].status).toBe(429);
     expect(responses[10].body).toEqual({
       error: 'Has arribat al límit de missatges; torna-ho a provar més tard',
+      code: 'RATE_LIMITED',
     });
     expect(proxyToPython).toHaveBeenCalledTimes(10);
+  });
+});
+
+describe('POST /chat/sessions (#161)', () => {
+  const CREATED_AT = new Date('2026-11-23T10:00:00.000Z');
+
+  beforeEach(() => {
+    SessioXatbot.create.mockImplementation(async (values) => ({
+      _id: CHAT_SESSION_ID,
+      createdAt: CREATED_AT,
+      ...values,
+    }));
+  });
+
+  it('creates an empty session for the authenticated user', async () => {
+    const res = await auth(request(app).post('/chat/sessions'));
+
+    expect(res.status).toBe(201);
+    expect(res.headers['cache-control']).toBe('no-store');
+    expect(res.body).toEqual({ sessionId: CHAT_SESSION_ID, createdAt: CREATED_AT.toISOString() });
+    expect(SessioXatbot.create).toHaveBeenCalledWith({ userId: USER_ID });
+    expect(MissatgeXatbot.create).not.toHaveBeenCalled();
+    expect(proxyToPython).not.toHaveBeenCalled();
+  });
+
+  it('accepts an empty JSON body', async () => {
+    const res = await auth(request(app).post('/chat/sessions').send({}));
+
+    expect(res.status).toBe(201);
+  });
+
+  it.each([
+    ['another user id', { userId: OTHER_USER_ID }],
+    ['an unknown field', { title: 'Nova conversa' }],
+    ['an array', []],
+  ])('rejects a body with %s', async (_name, body) => {
+    const res = await auth(request(app).post('/chat/sessions').send(body));
+
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ error: 'Cos de la petició no vàlid', code: 'INVALID_BODY' });
+    expect(SessioXatbot.create).not.toHaveBeenCalled();
+  });
+
+  it('requires a valid JWT', async () => {
+    const missing = await request(app).post('/chat/sessions');
+    const invalid = await request(app).post('/chat/sessions').auth('no-es-un-jwt', { type: 'bearer' });
+
+    expect(missing.status).toBe(401);
+    expect(invalid.status).toBe(401);
+    expect(SessioXatbot.create).not.toHaveBeenCalled();
+  });
+
+  it('returns 500 without internal details if the session cannot be stored', async () => {
+    SessioXatbot.create.mockRejectedValueOnce(new Error('mongodb://user:secret@host'));
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    const res = await auth(request(app).post('/chat/sessions'));
+
+    expect(res.status).toBe(500);
+    expect(res.body).toEqual({ error: 'Error intern del servidor' });
+  });
+
+  it('starts the new session without the history of previous ones', async () => {
+    const { body: { sessionId } } = await auth(request(app).post('/chat/sessions'));
+
+    const res = await auth(request(app).post('/chat/messages').send({ message: 'I el de dissabte?', sessionId }));
+
+    expect(res.status).toBe(200);
+    expect(res.body.sessionId).toBe(sessionId);
+    expect(MissatgeXatbot.find).toHaveBeenCalledWith({ sessionId });
+    expect(proxyToPython).toHaveBeenCalledWith(expect.objectContaining({
+      body: expect.objectContaining({ history: [] }),
+    }));
+    expect(SessioXatbot.create).toHaveBeenCalledTimes(1);
   });
 });

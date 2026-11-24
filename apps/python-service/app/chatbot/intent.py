@@ -16,12 +16,10 @@ from app.chatbot.catalog import (
     canonical_category,
     fold,
 )
-from app.chatbot.config import DEFAULT_MODEL
+from app.chatbot.config import DEFAULT_MODEL, gemini_timeout_ms
 
 FUNCTION_NAME = "aplicar_filtres_esdeveniments"
 MAX_MESSAGE_LENGTH = 500
-# Sense límit, el SDK espera la resposta indefinidament i la petició es queda penjada.
-GEMINI_TIMEOUT_MS = 20_000
 
 TZ = ZoneInfo(TIMEZONE)
 WEEKDAYS_CA = ["dilluns", "dimarts", "dimecres", "dijous", "divendres", "dissabte", "diumenge"]
@@ -83,6 +81,13 @@ FUNCTION_DECLARATION = {
                 "type": "BOOLEAN",
                 "description": "true si demana explícitament activitats gratuïtes o d'entrada lliure.",
             },
+            "itinerary": {
+                "type": "BOOLEAN",
+                "description": (
+                    "true si demana un itinerari, un pla o una ruta amb diverses activitats encadenades "
+                    "(p. ex. 'fes-me un itinerari', 'una ruta per dissabte', 'què puc encadenar a la tarda')."
+                ),
+            },
         },
     },
 }
@@ -103,6 +108,7 @@ class EventFilters:
     categories: list[str] = field(default_factory=list)
     audience: str | None = None
     max_price: float | None = None  # 0 = només gratuïts
+    itinerary: bool = False  # l'usuari demana un pla de passos encadenats (#140), no un filtre
 
     def is_empty(self) -> bool:
         return (
@@ -131,6 +137,8 @@ class EventFilters:
             result["comarca"] = self.comarca
         if self.date_passed:
             result["datePassed"] = True
+        if self.itinerary:
+            result["itinerary"] = True
         return result
 
 
@@ -234,6 +242,7 @@ def normalize_filters(args: dict | None, now: datetime | None = None) -> EventFi
         categories=categories,
         audience=audience,
         max_price=_parse_price(args),
+        itinerary=args.get("itinerary") is True,
     )
 
 
@@ -256,6 +265,8 @@ def build_system_instruction(now: datetime) -> str:
         "- 'gratis', 'gratuït', 'entrada lliure' -> free=true. 'barat' sense xifra NO és un preu.\n"
         "- Categories només si el tipus d'activitat ho indica (concert -> Música, titelles -> Teatre...).\n"
         "- L'usuari pot escriure en català, castellà o anglès.\n"
+        "- itinerary=true només si demana un itinerari, pla o ruta de diverses activitats encadenades; "
+        "una recomanació simple ('què hi ha avui?') no ho és.\n"
         "- Si la frase no té cap descriptor reconeixible, crida la funció sense arguments."
     )
 
@@ -271,7 +282,7 @@ def _default_client():
             raise IntentExtractionError("GEMINI_API_KEY no està configurada")
         from google import genai
 
-        _client = genai.Client(api_key=api_key, http_options={"timeout": GEMINI_TIMEOUT_MS})
+        _client = genai.Client(api_key=api_key, http_options={"timeout": gemini_timeout_ms()})
     return _client
 
 

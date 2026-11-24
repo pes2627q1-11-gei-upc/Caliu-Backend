@@ -11,6 +11,7 @@
     "test:coverage": "node --experimental-vm-modules node_modules/jest/bin/jest.js --coverage",
     "test:integration": "node --experimental-vm-modules node_modules/jest/bin/jest.js --runInBand --testRegex=users.integration.js$",
     "users:audit": "node src/scripts/auditUsers.js",
+    "recommender:weights": "node src/scripts/recommenderWeights.js",
     "seed": "node src/scripts/seed.js",
     "seed:clear": "node src/scripts/seed.js --clear"
   },
@@ -19,7 +20,8 @@
     "express": "^4.21.0",
     "express-rate-limit": "^8.7.1",
     "jsonwebtoken": "^9.0.3",
-    "mongoose": "^8.8.0"
+    "mongoose": "^8.8.0",
+    "swagger-ui-express": "^5.0.1"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
