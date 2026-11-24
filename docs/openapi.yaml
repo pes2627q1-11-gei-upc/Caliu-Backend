@@ -669,6 +669,36 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
 
+  /events/{id}/mobility:
+    get:
+      summary: Com arribar-hi de manera sostenible (estacions de bici i carregadors propers)
+      description: |
+        Dades del servei de WayGo per a la secció «Com arribar-hi» de la fitxa: estacions de Bicing/AMBici i
+        punts de recàrrega a menys de 1500 m de l'esdeveniment, ordenats per distància, amb l'enllaç a Google Maps.
+        - Només per a esdeveniments de **Barcelona** (abast acordat amb WayGo).
+        - Si l'esdeveniment no és de Barcelona, no té coordenades o WayGo no respon, la resposta és
+          `{ "available": false }` (200) i l'app no mostra la secció.
+        - La clau de WayGo només es fa servir al servidor: mai arriba a l'app.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Mobilitat propera (o no disponible)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Mobility' }
+              example:
+                available: true
+                summary: { bikeStations: 3, freeSlots: 42, chargingPoints: 2, withinMeters: 500 }
+                points:
+                  - { type: bike_station, name: "PL. CATALUNYA, 20", address: "PL. CATALUNYA, 20", distanceMeters: 72, mapsUrl: "https://www.google.com/maps/dir/?api=1&destination=41.3864,2.1705", system: Bicing, electricBikes: 11, mechanicalBikes: 0, freeSlots: 19 }
+                  - { type: charging_point, name: "62126022680001", address: "Plaça de Catalunya, 08002 Barcelona", distanceMeters: 5, mapsUrl: "https://www.google.com/maps/dir/?api=1&destination=41.387,2.17", chargers: 3, status: OPEN, speed: Fast, current: "AC/DC" }
+        '404':
+          description: No trobat
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
   /users/me/attended:
     get:
       summary: Consulta els esdeveniments acabats als quals ha assistit l'usuari autenticat
@@ -1088,3 +1118,37 @@ components:
               example: [2.82, 41.98]
         tags: { type: array, items: { type: string }, example: ["música", "nadal"] }
         url: { type: string, description: "Enllaç a la pàgina oficial; buit si no n'hi ha" }
+    Mobility:
+      type: object
+      description: "Com arribar-hi (dades de WayGo, només Barcelona). Si available és false, summary és null i points buit."
+      required: [available, summary, points]
+      properties:
+        available: { type: boolean }
+        summary:
+          type: object
+          nullable: true
+          description: "Resum per a la fitxa: punts a menys de withinMeters metres"
+          properties:
+            bikeStations: { type: integer }
+            freeSlots: { type: integer, description: "Ancoratges lliures de les estacions properes" }
+            chargingPoints: { type: integer }
+            withinMeters: { type: integer, example: 500 }
+        points:
+          type: array
+          items:
+            type: object
+            required: [type, name, address, distanceMeters, mapsUrl]
+            properties:
+              type: { type: string, enum: [bike_station, charging_point] }
+              name: { type: string }
+              address: { type: string }
+              distanceMeters: { type: integer }
+              mapsUrl: { type: string, description: "Ruta a Google Maps (només https; buit si no n'hi ha)" }
+              system: { type: string, description: "Només estacions: Bicing o AMBici" }
+              electricBikes: { type: integer, description: "Només estacions" }
+              mechanicalBikes: { type: integer, description: "Només estacions" }
+              freeSlots: { type: integer, description: "Només estacions: ancoratges lliures" }
+              chargers: { type: integer, description: "Només carregadors" }
+              status: { type: string, description: "Només carregadors: OPEN o CLOSE" }
+              speed: { type: string, description: "Només carregadors" }
+              current: { type: string, description: "Només carregadors" }
