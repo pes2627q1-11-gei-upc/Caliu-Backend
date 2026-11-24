@@ -899,7 +899,7 @@ components:
           maxLength: 80
           description: Inici del primer missatge de l'usuari. null si la sessió encara no té missatges (p. ex. creada amb `POST /chat/sessions`).
         createdAt: { type: string, format: date-time }
-        lastActivityAt: { type: string, format: date-time, description: Últim missatge desat, o la creació si no en té. }
+        lastActivityAt: { type: string, format: date-time, description: "Últim missatge desat, o la creació si no en té." }
     ChatError:
       type: object
       description: |
