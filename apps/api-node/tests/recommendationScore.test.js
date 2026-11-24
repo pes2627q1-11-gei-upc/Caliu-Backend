@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import { DEFAULT_WEIGHTS } from '../src/domain/recommenderWeights.js';
 import {
   activityRadiusKm, buildProfile, rankEvents, scoreEvent,
@@ -76,5 +77,82 @@ describe('#119 algorisme de scoring', () => {
 
   it('sense opcions retorna els candidats sense puntuació, per data', () => {
     expect(rankEvents([ev('b'), ev('a')]).map(({ event, score }) => [event._id, score])).toEqual([['a', 0], ['b', 0]]);
+  });
+});
+
+describe('#121 tests de l\'algorisme de recomanació', () => {
+  const CANDIDATES = [
+    ev('concert', { categories: ['Música'], tags: ['Jazz'] }),
+    ev('obra', { categories: ['Teatre'], tags: ['Infantil'] }),
+    ev('expo', { categories: ['Arts'], tags: ['Fotografia'] }),
+  ];
+  const first = (options) => rankEvents(CANDIDATES, options)[0].event._id;
+
+  it('dos usuaris amb favorits de categories diferents reben recomanacions diferents (criteri HU #8)', () => {
+    const musicFan = [ev('f-jazz', { categories: ['Música'], tags: ['Jazz'] })];
+    const theatreFan = [ev('f-titelles', { categories: ['Teatre'], tags: ['Infantil'] })];
+
+    expect(first({ favorites: musicFan })).toBe('concert');
+    expect(first({ favorites: theatreFan })).toBe('obra');
+  });
+
+  it('dos usuaris amb favorits que només difereixen en les etiquetes també reben recomanacions diferents', () => {
+    const candidates = [ev('a', { tags: ['Jazz'] }), ev('b', { tags: ['Rock'] })];
+    const rank = (tag) => rankEvents(candidates, { favorites: [ev('f', { tags: [tag] })] })[0].event._id;
+    expect(rank('jazz')).toBe('a');
+    expect(rank('ROCK')).toBe('b');
+  });
+
+  it('exclou els preferits encara que els identificadors siguin ObjectId de consultes diferents', () => {
+    const id = new mongoose.Types.ObjectId();
+    const favorite = { _id: new mongoose.Types.ObjectId(id.toString()), categories: ['Música'] };
+    const candidate = { _id: id, title: 'Ja és preferit', categories: ['Música'], startDate: new Date() };
+    const other = { _id: new mongoose.Types.ObjectId(), title: 'Nou', categories: ['Música'], startDate: new Date() };
+
+    const ranked = rankEvents([candidate, other], { favorites: [favorite] });
+    expect(ranked.map(({ event }) => event.title)).toEqual(['Nou']);
+  });
+
+  it('els pesos configurables canvien l\'ordre de les recomanacions', () => {
+    const near = ev('a-prop', { categories: ['Teatre'], distanceMeters: 500 });
+    const liked = ev('agradat', { categories: ['Música'], distanceMeters: 9000 });
+    const favorites = [ev('f', { categories: ['Música'] })];
+    const order = (weights) => rankEvents([near, liked], { favorites, weights, proximitatKm: 10 })
+      .map(({ event }) => event._id);
+
+    expect(order({ ...DEFAULT_WEIGHTS, proximity: 10 })).toEqual(['a-prop', 'agradat']);
+    expect(order({ ...DEFAULT_WEIGHTS, favoriteCategories: 10 })).toEqual(['agradat', 'a-prop']);
+  });
+
+  it('les preferències es comparen sense majúscules ni accents', () => {
+    const profile = buildProfile([], ['música', ' TEATRE ']);
+    expect(scoreEvent(ev('e', { categories: ['Musica'] }), profile, only('preferences'))).toBe(1);
+    expect(scoreEvent(ev('e', { categories: ['Teatre'] }), profile, only('preferences'))).toBe(1);
+  });
+
+  it('esdeveniments i favorits sense categories ni etiquetes puntuen 0 sense errors', () => {
+    const profile = buildProfile([ev('f'), ev('g', { categories: [], tags: null })], []);
+    expect(scoreEvent(ev('e'), profile)).toBe(0);
+    expect(scoreEvent(ev('e', { categories: ['Música'], tags: ['Jazz'] }), profile)).toBe(0);
+  });
+
+  it('la proximitat val 0 just al límit del radi i amb distàncies no vàlides', () => {
+    expect(scoreEvent(ev('e', { distanceMeters: 10000 }), PROFILE, only('proximity'), 10)).toBe(0);
+    expect(scoreEvent(ev('e', { distanceMeters: Number.NaN }), PROFILE, only('proximity'), 10)).toBe(0);
+    expect(scoreEvent(ev('e', { distanceMeters: '500' }), PROFILE, only('proximity'), 10)).toBe(0);
+  });
+
+  it('un esdeveniment sense data d\'inici no trenca l\'ordre i queda primer a igual puntuació', () => {
+    const ranked = rankEvents([ev('amb-data'), { _id: 'sense-data', title: 'Sense data' }]);
+    expect(ranked.map(({ event }) => event._id)).toEqual(['sense-data', 'amb-data']);
+  });
+
+  it('un usuari sense historial ni preferències rep els candidats per proximitat i després per data', () => {
+    const ranked = rankEvents([
+      ev('lluny', { distanceMeters: 8000 }),
+      ev('prop', { distanceMeters: 1000 }),
+      ev('sense-ubicacio'),
+    ], { proximitatKm: 10 });
+    expect(ranked.map(({ event }) => event._id)).toEqual(['prop', 'lluny', 'sense-ubicacio']);
   });
 });
