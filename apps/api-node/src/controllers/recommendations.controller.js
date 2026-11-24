@@ -39,6 +39,9 @@ async function weightsOrDefaults() {
 
 // GET /recommendations (#120, HU #8): esdeveniments recomanats per a l'usuari autenticat, ordenats per
 // puntuació (#119). Un usuari sense historial rep els propers (amb ubicació) o els pròxims per data.
+// Reajust en marcar un preferit (#158, HU #46): el perfil de gustos es calcula a cada petició a partir dels
+// preferits actuals, així que afegir-ne o treure'n un es reflecteix a la petició següent, sense guardar ni
+// invalidar res. La ruta respon amb Cache-Control: no-store perquè cap client en reutilitzi una de vella.
 export async function getRecommendations(req, res, next) {
   try {
     const parsed = parseRecommendationQuery(req.query, req.user.proximitatKm);

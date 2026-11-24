@@ -466,6 +466,8 @@ paths:
         - Sense ubicació: els pròxims per data.
         - Es puntuen com a màxim 200 candidats. A igual puntuació, primer el que comença abans.
         - Un usuari sense preferits ni preferències rep igualment la llista (per proximitat o per data).
+        - Es recalcula a cada petició (resposta amb `Cache-Control: no-store`): després de marcar o treure un
+          preferit, n'hi ha prou amb tornar a demanar les recomanacions per veure el reajust.
       security:
         - bearerAuth: []
       parameters:

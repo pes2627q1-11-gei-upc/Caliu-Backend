@@ -154,3 +154,58 @@ describe('#120 GET /recommendations', () => {
     expect(aggregate).not.toHaveBeenCalled();
   });
 });
+
+describe('#158 #159 reajust de les recomanacions en marcar un preferit', () => {
+  const NEW_THEATRE_FAVORITE = ev('64b7f0c2a1b2c3d4e5f60735', { categories: ['Teatre'] });
+  const OTHER_MUSIC_FAVORITE = ev('64b7f0c2a1b2c3d4e5f60736', { categories: ['Música'] });
+  const scoreOf = (res, id) => res.body.items.find((item) => item.id === id).score;
+
+  it('marcar un preferit de teatre fa pujar el teatre a la petició següent, sense memòria cau', async () => {
+    find.mockReturnValue(chain([ART, THEATRE, JAZZ]));
+    favorites = [];
+    const before = await get();
+
+    favorites = [{ eventId: NEW_THEATRE_FAVORITE }];
+    const after = await get();
+
+    expect(ids(before)[0]).toBe(ART._id);
+    expect(ids(after)[0]).toBe(THEATRE._id);
+    expect(scoreOf(after, THEATRE._id)).toBeGreaterThan(scoreOf(before, THEATRE._id));
+    expect([before.headers['cache-control'], after.headers['cache-control']]).toEqual(['no-store', 'no-store']);
+  });
+
+  it('el reajust és ponderat: com més preferits d\'una categoria, més puntuació', async () => {
+    find.mockReturnValue(chain([JAZZ, THEATRE]));
+    const jazzScoreWith = async (list) => {
+      favorites = list.map((event) => ({ eventId: event }));
+      return scoreOf(await get(), JAZZ._id);
+    };
+
+    const none = await jazzScoreWith([NEW_THEATRE_FAVORITE]);
+    const one = await jazzScoreWith([NEW_THEATRE_FAVORITE, FAVORITE]);
+    const two = await jazzScoreWith([NEW_THEATRE_FAVORITE, FAVORITE, OTHER_MUSIC_FAVORITE]);
+
+    expect(none).toBe(0);
+    expect(one).toBeGreaterThan(none);
+    expect(two).toBeGreaterThan(one);
+  });
+
+  it('treure un preferit el torna a les recomanacions i desfà el reajust', async () => {
+    find.mockReturnValue(chain([FAVORITE, THEATRE]));
+    favorites = [{ eventId: FAVORITE }];
+    const withFavorite = await get();
+
+    favorites = [];
+    const withoutFavorite = await get();
+
+    expect(ids(withFavorite)).not.toContain(FAVORITE._id);
+    expect(ids(withoutFavorite)).toContain(FAVORITE._id);
+  });
+
+  it('sense sessió, marcar un preferit retorna 401 i no modifica res', async () => {
+    const update = jest.spyOn(Interaction, 'updateOne');
+    const res = await request(app).post('/users/me/favorites').send({ eventId: THEATRE._id });
+    expect(res.status).toBe(401);
+    expect(update).not.toHaveBeenCalled();
+  });
+});
