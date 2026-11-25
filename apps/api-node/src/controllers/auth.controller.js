@@ -46,7 +46,7 @@ export async function login(req, res, next) {
     if (!user || !matches) {
       return res.status(401).json({ error: 'Credencials incorrectes' });
     }
-    const session = prepareSession(user._id, config);
+    const session = prepareSession(user._id, config, user.sessionVersion);
     await Session.create({ userId: user._id, jti: session.jti, expiresAt: session.expiresAt });
     res.json(sessionResponse(user, session, config));
   } catch (err) {

@@ -646,3 +646,8 @@ describe('#149 avatar', () => {
     expect(image.body).toEqual(avatarBytes);
   });
 });
+
+it('rebutja una sessió anterior al reset encara que el document de sessió existeixi', async () => {
+  users[ID].sessionVersion = 1;
+  expect((await auth(request(app).get('/users/me'))).status).toBe(401);
+});
