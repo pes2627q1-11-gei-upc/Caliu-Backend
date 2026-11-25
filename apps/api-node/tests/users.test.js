@@ -624,6 +624,28 @@ describe('#59 assoliments', () => {
     expect(res.body.items[5]).toMatchObject({ id: 'social', progress: 5, unlocked: true });
   });
 });
+describe('#149 avatar', () => {
+  const put = () => auth(request(app).put('/users/me/avatar'));
+  it('rebutja peticions sense JWT, fitxers falsos i fitxers massa grans', async () => {
+    expect((await request(app).put('/users/me/avatar')).status).toBe(401);
+    expect((await put().attach('avatar', Buffer.from('fals'), 'foto.png')).status).toBe(400);
+    expect((await put().attach('avatar', Buffer.alloc(2097153), 'foto.jpg')).status).toBe(413);
+  });
+  it('normalitza la foto, la substitueix i en serveix els bytes per URL', async () => {
+    const { default: sharp } = await import('sharp');
+    const png = await sharp({ create: { width: 2, height: 2, channels: 3, background: 'red' } }).png().toBuffer();
+    const update = jest.spyOn(User, 'updateOne').mockResolvedValue({ matchedCount: 1 });
+    const res = await put().attach('avatar', png, 'foto.png');
+    expect(res.status).toBe(200);
+    const { avatarBytes, avatarUrl } = update.mock.calls[0][1].$set;
+    expect(res.body).toEqual({ avatarUrl });
+    expect((await sharp(avatarBytes).metadata()).format).toBe('jpeg');
+    jest.spyOn(User, 'findOne').mockReturnValue({ select: async () => ({ avatarBytes }) });
+    const image = await request(app).get(new URL(avatarUrl).pathname);
+    expect(image.status).toBe(200);
+    expect(image.body).toEqual(avatarBytes);
+  });
+});
 
 it('rebutja una sessió anterior al reset encara que el document de sessió existeixi', async () => {
   users[ID].sessionVersion = 1;

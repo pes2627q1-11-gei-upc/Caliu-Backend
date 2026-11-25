@@ -1,3 +1,4 @@
+import { readAvatar, saveAvatar, getAvatar } from '../controllers/avatar.controller.js';
 import { getPublicProfile } from '../controllers/publicProfile.controller.js';
 import {
   follow, listFollowers, listFollowing, unfollow, validateFollowTarget,
@@ -8,8 +9,10 @@ import { addFavorite, listActivity, listAttended, listFavorites, removeFavorite,
 import { noStore, requireAuth } from '../middlewares/auth.js';
 
 const router = Router();
+router.get('/:id/avatar/:version', noStore, getAvatar);
 router.use(noStore, requireAuth);
 router.get('/me', getMe);
+router.put('/me/avatar', readAvatar, saveAvatar);
 router.patch('/me', updateMe);
 router.get('/me/preferences', getPreferences);
 router.put('/me/preferences', replacePreferences);
