@@ -88,6 +88,47 @@ describe('GET /events/nearby', () => {
     expect(res.status).toBe(400);
   });
 
+  describe('zona densa (#116)', () => {
+    // 300 esdeveniments a la mateixa zona: més que el màxim general de 100.
+    const dense = Array.from({ length: 300 }, (_, i) => ({
+      ...DOC,
+      _id: `64b7f0c2a1b2c3d4e5f6${String(i).padStart(4, '0')}`,
+      title: `Esdeveniment ${i}`,
+      distanceMeters: i,
+    }));
+
+    it('retorna tots els esdeveniments de la zona amb el límit que demana el mapa', async () => {
+      aggregate.mockResolvedValue([{ items: dense.slice(0, 250), total: [{ n: 300 }] }]);
+
+      const res = await request(app).get('/events/nearby').query({ lat: 41.38, lng: 2.17, radiusKm: 12, limit: 250 });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({ page: 1, limit: 250, total: 300 });
+      expect(res.body.items).toHaveLength(250);
+      const facet = aggregate.mock.calls[0][0][1].$facet.items;
+      expect(facet).toEqual([{ $skip: 0 }, { $limit: 250 }]);
+    });
+
+    it('limita a 500 una petició més gran, i total indica si n\'hi ha més', async () => {
+      aggregate.mockResolvedValue([{ items: dense, total: [{ n: 300 }] }]);
+
+      const res = await request(app).get('/events/nearby').query({ lat: 41.38, lng: 2.17, limit: 5000 });
+
+      expect(res.status).toBe(200);
+      expect(res.body.limit).toBe(500);
+      expect(aggregate.mock.calls[0][0][1].$facet.items).toEqual([{ $skip: 0 }, { $limit: 500 }]);
+    });
+
+    it('manté el màxim de 100 a GET /events amb coordenades', async () => {
+      aggregate.mockResolvedValue([{ items: [], total: [] }]);
+
+      const res = await request(app).get('/events').query({ lat: 41.38, lng: 2.17, limit: 250 });
+
+      expect(res.status).toBe(200);
+      expect(res.body.limit).toBe(100);
+    });
+  });
+
   it('no el confon amb /events/:id', async () => {
     const res = await request(app).get('/events/nearby');
 

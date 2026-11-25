@@ -58,6 +58,7 @@ beforeEach(() => {
       ? { _id: CHAT_SESSION_ID, userId: USER_ID }
       : null
   ));
+  jest.spyOn(SessioXatbot, 'updateOne').mockResolvedValue({ matchedCount: 1 });
   jest.spyOn(MissatgeXatbot, 'create').mockImplementation(async (values) => values);
   jest.spyOn(MissatgeXatbot, 'find').mockReturnValue({
     sort: jest.fn().mockReturnThis(),
@@ -446,5 +447,198 @@ describe('POST /chat/sessions (#161)', () => {
       body: expect.objectContaining({ history: [] }),
     }));
     expect(SessioXatbot.create).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('historial del xat (#163)', () => {
+  const OLDER_SESSION_ID = '64b7f0c2a1b2c3d4e5f60721';
+  const query = (result) => {
+    const chain = {
+      sort: jest.fn().mockReturnThis(),
+      select: jest.fn().mockReturnThis(),
+      lean: jest.fn().mockResolvedValue(result),
+    };
+    return chain;
+  };
+
+  describe('GET /chat/sessions', () => {
+    it('lists only the sessions of the authenticated user, most recent first', async () => {
+      const sessions = query([
+        {
+          _id: CHAT_SESSION_ID,
+          title: 'plans per avui?',
+          createdAt: new Date('2026-11-23T09:00:00.000Z'),
+          lastActivityAt: new Date('2026-11-23T10:00:00.000Z'),
+        },
+        { _id: OLDER_SESSION_ID, createdAt: new Date('2026-11-22T09:00:00.000Z'), updatedAt: new Date('2026-11-22T09:00:00.000Z') },
+      ]);
+      const find = jest.spyOn(SessioXatbot, 'find').mockReturnValue(sessions);
+
+      const res = await auth(request(app).get('/chat/sessions?userId=' + OTHER_USER_ID));
+
+      expect(res.status).toBe(200);
+      expect(res.headers['cache-control']).toBe('no-store');
+      expect(find).toHaveBeenCalledWith({ userId: USER_ID });
+      expect(sessions.sort).toHaveBeenCalledWith({ lastActivityAt: -1, _id: -1 });
+      expect(res.body).toEqual({
+        items: [
+          {
+            id: CHAT_SESSION_ID,
+            title: 'plans per avui?',
+            createdAt: '2026-11-23T09:00:00.000Z',
+            lastActivityAt: '2026-11-23T10:00:00.000Z',
+          },
+          // Sessió buida o antiga, sense títol ni lastActivityAt: l'app pot mostrar-la com a "Nova conversa".
+          {
+            id: OLDER_SESSION_ID,
+            title: null,
+            createdAt: '2026-11-22T09:00:00.000Z',
+            lastActivityAt: '2026-11-22T09:00:00.000Z',
+          },
+        ],
+      });
+    });
+
+    it('returns an empty list when the user has no sessions', async () => {
+      jest.spyOn(SessioXatbot, 'find').mockReturnValue(query([]));
+
+      const res = await auth(request(app).get('/chat/sessions'));
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ items: [] });
+    });
+  });
+
+  describe('GET /chat/sessions/:id/messages', () => {
+    const path = `/chat/sessions/${CHAT_SESSION_ID}/messages`;
+
+    it('returns the messages of an own session in chronological order', async () => {
+      const exists = jest.spyOn(SessioXatbot, 'exists').mockResolvedValue({ _id: CHAT_SESSION_ID });
+      const messages = query([
+        { _id: 'm1', role: 'user', content: 'plans per avui?', createdAt: new Date('2026-11-23T10:00:00.000Z') },
+        { _id: 'm2', role: 'assistant', content: 'Et recomano un concert.', createdAt: new Date('2026-11-23T10:00:01.000Z') },
+      ]);
+      const find = jest.spyOn(MissatgeXatbot, 'find').mockReturnValue(messages);
+
+      const res = await auth(request(app).get(path));
+
+      expect(res.status).toBe(200);
+      expect(exists).toHaveBeenCalledWith({ _id: CHAT_SESSION_ID, userId: USER_ID });
+      expect(find).toHaveBeenCalledWith({ sessionId: CHAT_SESSION_ID });
+      expect(messages.sort).toHaveBeenCalledWith({ createdAt: 1, _id: 1 });
+      expect(res.body).toEqual({
+        items: [
+          { id: 'm1', role: 'user', content: 'plans per avui?', createdAt: '2026-11-23T10:00:00.000Z' },
+          { id: 'm2', role: 'assistant', content: 'Et recomano un concert.', createdAt: '2026-11-23T10:00:01.000Z' },
+        ],
+      });
+    });
+
+    it('returns an empty list for an own session without messages', async () => {
+      jest.spyOn(SessioXatbot, 'exists').mockResolvedValue({ _id: CHAT_SESSION_ID });
+      jest.spyOn(MissatgeXatbot, 'find').mockReturnValue(query([]));
+
+      const res = await auth(request(app).get(path));
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ items: [] });
+    });
+
+    it("rejects another user's session as not found, without reading its messages", async () => {
+      jest.spyOn(SessioXatbot, 'exists').mockResolvedValue(null);
+      const find = jest.spyOn(MissatgeXatbot, 'find');
+
+      const res = await auth(request(app).get(`/chat/sessions/${OLDER_SESSION_ID}/messages`));
+
+      expect(res.status).toBe(404);
+      expect(res.body).toEqual({ error: 'Sessió de xat no trobada', code: 'SESSION_NOT_FOUND' });
+      expect(find).not.toHaveBeenCalled();
+    });
+
+    it.each(['no-es-un-id', 'aaaaaaaaaaaa'])('rejects a malformed session id (%s)', async (id) => {
+      const exists = jest.spyOn(SessioXatbot, 'exists');
+
+      const res = await auth(request(app).get(`/chat/sessions/${id}/messages`));
+
+      expect(res.status).toBe(400);
+      expect(res.body).toEqual({ error: 'Identificador de sessió no vàlid', code: 'INVALID_SESSION_ID' });
+      expect(exists).not.toHaveBeenCalled();
+    });
+  });
+
+  it.each([
+    '/chat/sessions',
+    `/chat/sessions/${CHAT_SESSION_ID}/messages`,
+  ])('GET %s requires a valid JWT', async (path) => {
+    const find = jest.spyOn(SessioXatbot, 'find');
+    const missing = await request(app).get(path);
+    const invalid = await request(app).get(path).auth('no-es-un-jwt', { type: 'bearer' });
+
+    expect(missing.status).toBe(401);
+    expect(invalid.status).toBe(401);
+    expect(find).not.toHaveBeenCalled();
+  });
+
+  it('returns 500 without internal details if the history cannot be read', async () => {
+    jest.spyOn(SessioXatbot, 'find').mockReturnValue({
+      sort: jest.fn().mockReturnThis(),
+      select: jest.fn().mockReturnThis(),
+      lean: jest.fn().mockRejectedValue(new Error('mongodb://user:secret@host')),
+    });
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    const res = await auth(request(app).get('/chat/sessions'));
+
+    expect(res.status).toBe(500);
+    expect(res.body).toEqual({ error: 'Error intern del servidor' });
+  });
+
+  it('does not count history requests in the chat rate limit', async () => {
+    jest.spyOn(SessioXatbot, 'find').mockReturnValue(query([]));
+    for (let i = 0; i < 12; i += 1) {
+      expect((await auth(request(app).get('/chat/sessions'))).status).toBe(200);
+    }
+
+    const res = await auth(request(app).post('/chat/messages').send({ message: 'teatre' }));
+
+    expect(res.status).toBe(200);
+  });
+
+  describe('updates the session when messages are stored', () => {
+    it('moves the session to the top and keeps the first message as title', async () => {
+      await auth(request(app).post('/chat/messages').send({ message: '  plans per avui?  ' }));
+
+      expect(SessioXatbot.updateOne).toHaveBeenCalledWith({ _id: CHAT_SESSION_ID }, [
+        { $set: { lastActivityAt: expect.any(Date), title: { $ifNull: ['$title', { $literal: 'plans per avui?' }] } } },
+      ]);
+    });
+
+    it('cuts the title to 80 characters without splitting emojis', async () => {
+      const message = `${'🎭'.repeat(79)}ab`;
+
+      await auth(request(app).post('/chat/messages').send({ message }));
+
+      const [, [{ $set }]] = SessioXatbot.updateOne.mock.calls[0];
+      expect($set.title.$ifNull[1].$literal).toBe(`${'🎭'.repeat(79)}a`);
+    });
+
+    it('does not touch the session on a fallback answer', async () => {
+      proxyToPython.mockResolvedValueOnce({ type: 'fallback', reply: 'Ara no puc respondre.' });
+
+      await auth(request(app).post('/chat/messages').send({ message: 'teatre', sessionId: CHAT_SESSION_ID }));
+
+      expect(SessioXatbot.updateOne).not.toHaveBeenCalled();
+    });
+
+    it('still answers if the session cannot be updated', async () => {
+      SessioXatbot.updateOne.mockRejectedValueOnce(new Error('mongo'));
+      const log = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+      const res = await auth(request(app).post('/chat/messages').send({ message: 'teatre' }));
+
+      expect(res.status).toBe(200);
+      expect(MissatgeXatbot.create).toHaveBeenCalledTimes(2);
+      expect(log).toHaveBeenCalledWith('No s’ha pogut actualitzar la sessió de xat');
+    });
   });
 });

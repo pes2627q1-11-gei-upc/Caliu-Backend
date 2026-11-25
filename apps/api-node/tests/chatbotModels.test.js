@@ -12,6 +12,18 @@ describe('models del xatbot', () => {
     expect(new SessioXatbot({ userId }).validateSync()).toBeUndefined();
   });
 
+  it('ordena l\'historial per activitat i limita el títol (#163)', () => {
+    const session = new SessioXatbot({ userId });
+    expect(session.lastActivityAt).toBeInstanceOf(Date);
+    expect(session.title).toBeUndefined();
+    expect(SessioXatbot.schema.indexes()).toContainEqual([
+      { userId: 1, lastActivityAt: -1, _id: -1 },
+      { background: true },
+    ]);
+    expect(new SessioXatbot({ userId, title: 'a'.repeat(80) }).validateSync()).toBeUndefined();
+    expect(new SessioXatbot({ userId, title: 'a'.repeat(81) }).validateSync().errors.title).toBeDefined();
+  });
+
   it('desa missatges a missatgesXatbot i valida sessió, rol i contingut', () => {
     expect(MissatgeXatbot.collection.name).toBe('missatgesXatbot');
     expect(MissatgeXatbot.schema.indexes()).toContainEqual([
