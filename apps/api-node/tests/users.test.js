@@ -624,3 +624,8 @@ describe('#59 assoliments', () => {
     expect(res.body.items[5]).toMatchObject({ id: 'social', progress: 5, unlocked: true });
   });
 });
+
+it('rebutja una sessió anterior al reset encara que el document de sessió existeixi', async () => {
+  users[ID].sessionVersion = 1;
+  expect((await auth(request(app).get('/users/me'))).status).toBe(401);
+});

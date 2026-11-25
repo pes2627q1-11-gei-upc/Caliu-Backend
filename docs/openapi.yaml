@@ -138,6 +138,40 @@ paths:
                         target: { type: integer, minimum: 1 }
                         progress: { type: integer, minimum: 0 }
                         unlocked: { type: boolean }
+  /auth/forgot-password:
+    post:
+      summary: Demana un codi de recuperació
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: { type: string }
+      responses:
+        '202': { description: Sol·licitud acceptada }
+        '400': { description: Petició invàlida }
+        '429': { description: Límit de cinc intents per IP i ruta en quinze minuts }
+        '503': { description: Servei de correu sense configurar }
+  /auth/reset-password:
+    post:
+      summary: Canvia la contrasenya amb el codi
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, password]
+              properties:
+                token: { type: string }
+                password: { type: string }
+      responses:
+        '204': { description: Contrasenya actualitzada }
+        '400': { description: Petició invàlida }
+        '429': { description: Límit de cinc intents per IP i ruta en quinze minuts }
   /users/{username}:
     get:
       summary: Consulta un perfil públic i les assistències comunes

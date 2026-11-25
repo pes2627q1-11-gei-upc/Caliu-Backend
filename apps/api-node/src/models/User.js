@@ -6,7 +6,10 @@ export const USERNAME_COLLATION = { locale: 'ca', strength: 2, normalization: tr
 const userSchema = new mongoose.Schema(
   {
     email: { type: String, required: true, unique: true, trim: true, lowercase: true, maxlength: 254 },
+    resetDigest: { type: String, select: false },
+    resetExpiresAt: { type: Date, select: false },
     passwordHash: { type: String, required: true, select: false },
+    sessionVersion: { type: Number, default: 0 },
     username: {
       type: String,
       required: true,
@@ -24,6 +27,8 @@ const userSchema = new mongoose.Schema(
   // Els índexs es creen explícitament després de l'auditoria de dades antigues.
   { timestamps: true, autoIndex: false },
 );
+
+userSchema.index({ resetDigest: 1 }, { partialFilterExpression: { resetDigest: { $type: "string" } } });
 
 userSchema.index({ username: 1 }, {
   name: 'username_unique_ci', unique: true, collation: USERNAME_COLLATION,
