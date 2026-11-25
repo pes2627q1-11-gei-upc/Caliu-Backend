@@ -1,6 +1,6 @@
 import mongoose from 'mongoose';
 import MissatgeXatbot from '../models/MissatgeXatbot.js';
-import SessioXatbot from '../models/SessioXatbot.js';
+import SessioXatbot, { SESSION_TITLE_LENGTH } from '../models/SessioXatbot.js';
 import { proxyToPython } from '../integrations/pythonService.js';
 import { httpError } from '../domain/httpError.js';
 
@@ -30,6 +30,78 @@ function validateMessage(body) {
     return { error: `Camp "locale" no vàlid (${LOCALES.join(', ')})`, code: 'INVALID_LOCALE' };
   }
   return { message, locale: body.locale };
+}
+
+// "Nova conversa" (#161, HU #47): crea una sessió buida. Els missatges que s'hi enviïn no porten
+// cap context de les sessions anteriors, que es conserven per a l'historial (#48).
+export async function createChatSession(req, res, next) {
+  if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body) || Object.keys(req.body).length) {
+    return res.status(400).json({ error: 'Cos de la petició no vàlid', code: 'INVALID_BODY' });
+  }
+  try {
+    const chatSession = await SessioXatbot.create({ userId: req.user._id });
+    return res.status(201).json({ sessionId: String(chatSession._id), createdAt: chatSession.createdAt });
+  } catch (err) {
+    return next(err);
+  }
+}
+
+// Historial (#163): la sessió passa a ser la més recent i, si encara no en té, pren com a títol l'inici
+// del primer missatge. $literal evita que un missatge que comenci per "$" s'interpreti com un camp.
+// Si falla, la resposta no es perd: els missatges ja estan desats i només queda l'ordre desactualitzat.
+async function touchSession(sessionId, message) {
+  const title = Array.from(message).slice(0, SESSION_TITLE_LENGTH).join('').trim();
+  try {
+    await SessioXatbot.updateOne({ _id: sessionId }, [
+      { $set: { lastActivityAt: new Date(), title: { $ifNull: ['$title', { $literal: title }] } } },
+    ]);
+  } catch {
+    console.error('No s’ha pogut actualitzar la sessió de xat');
+  }
+}
+
+const toSession = ({ _id, title, createdAt, lastActivityAt, updatedAt }) => ({
+  id: String(_id),
+  title: title ?? null,
+  createdAt,
+  lastActivityAt: lastActivityAt ?? updatedAt ?? createdAt,
+});
+
+// GET /chat/sessions (#163, HU #48): sessions de l'usuari autenticat, de la més recent a la més antiga.
+// Inclou les sessions buides creades amb POST /chat/sessions (title null), perquè l'app pugui reobrir
+// la immediatament anterior encara que no tingui missatges.
+export async function listChatSessions(req, res, next) {
+  try {
+    const sessions = await SessioXatbot.find({ userId: req.user._id })
+      .sort({ lastActivityAt: -1, _id: -1 })
+      .select('title createdAt updatedAt lastActivityAt')
+      .lean();
+    return res.json({ items: sessions.map(toSession) });
+  } catch (err) {
+    return next(err);
+  }
+}
+
+// GET /chat/sessions/:id/messages (#163): missatges en ordre cronològic. Una sessió d'una altra persona
+// respon igual que una inexistent (404), sense revelar que existeix.
+export async function listChatMessages(req, res, next) {
+  const { id } = req.params;
+  if (!mongoose.isObjectIdOrHexString(id)) {
+    return res.status(400).json({ error: 'Identificador de sessió no vàlid', code: 'INVALID_SESSION_ID' });
+  }
+  try {
+    const chatSession = await SessioXatbot.exists({ _id: id, userId: req.user._id });
+    if (!chatSession) return res.status(404).json({ error: 'Sessió de xat no trobada', code: 'SESSION_NOT_FOUND' });
+    const messages = await MissatgeXatbot.find({ sessionId: id })
+      .sort({ createdAt: 1, _id: 1 })
+      .select('role content createdAt')
+      .lean();
+    return res.json({
+      items: messages.map(({ _id, role, content, createdAt }) => ({ id: String(_id), role, content, createdAt })),
+    });
+  } catch (err) {
+    return next(err);
+  }
 }
 
 export async function postChatMessage(req, res, next) {
@@ -93,6 +165,7 @@ export async function postChatMessage(req, res, next) {
         role: 'assistant',
         content: result.reply,
       });
+      await touchSession(chatSession._id, validated.message);
     }
 
     // "plan" (#140): itinerari de passos per al widget de l'app. Si no és vàlid, es respon com a text.

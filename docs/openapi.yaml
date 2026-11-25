@@ -10,8 +10,134 @@ info:
 servers:
   - url: http://localhost:3000
     description: "Local (Docker Compose). Des de l'emulador Android: http://10.0.2.2:3000"
+  - url: https://caliu-api.onrender.com
+    description: API de Caliu a Render
 
 paths:
+  /users/{id}/follow:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema: { type: string }
+    post:
+      summary: Segueix un usuari
+      security: [{ bearerAuth: [] }]
+      responses:
+        '204': { description: Operació completada (idempotent) }
+        '400': { description: Id invàlid o usuari propi }
+        '401': { description: Sessió no vàlida }
+        '404': { description: Usuari no trobat }
+    delete:
+      summary: Deixa de seguir un usuari
+      security: [{ bearerAuth: [] }]
+      responses:
+        '204': { description: Operació completada (idempotent) }
+        '400': { description: Id invàlid o usuari propi }
+        '401': { description: Sessió no vàlida }
+        '404': { description: Usuari no trobat }
+  /users/{id}/followers:
+    get:
+      summary: Llista els seguidors d'un usuari
+      description: |
+        Usuaris que segueixen l'usuari `id` (#183, HU #62). Qualsevol usuari autenticat pot consultar-la,
+        també la pròpia.
+        Només inclou l'`id` i el `username` de cada usuari (per obrir-ne el perfil públic), del seguiment
+        més recent al més antic. Es descarten els comptes esborrats o sense username, de manera que `total`
+        sempre coincideix amb el nombre d'elements. Sense paginació.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string }, example: "6710f1c2a1b2c3d4e5f60718" }
+      responses:
+        '200':
+          description: Llista (buida, amb `total` 0, si no n'hi ha cap)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FollowList' }
+              example:
+                items:
+                  - { id: "6710f1c2a1b2c3d4e5f60719", username: "Núria" }
+                  - { id: "6710f1c2a1b2c3d4e5f60720", username: "jordi" }
+                total: 2
+        '400':
+          description: Id invàlid
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401':
+          description: Sessió no vàlida
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '404':
+          description: Usuari no trobat
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+  /users/{id}/following:
+    get:
+      summary: Llista els usuaris que segueix un usuari
+      description: |
+        Usuaris que segueix l'usuari `id` (#183, HU #62). Qualsevol usuari autenticat pot consultar-la,
+        també la pròpia.
+        Només inclou l'`id` i el `username` de cada usuari (per obrir-ne el perfil públic), del seguiment
+        més recent al més antic. Es descarten els comptes esborrats o sense username, de manera que `total`
+        sempre coincideix amb el nombre d'elements. Sense paginació.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string }, example: "6710f1c2a1b2c3d4e5f60718" }
+      responses:
+        '200':
+          description: Llista (buida, amb `total` 0, si no n'hi ha cap)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FollowList' }
+              example:
+                items:
+                  - { id: "6710f1c2a1b2c3d4e5f60719", username: "Núria" }
+                  - { id: "6710f1c2a1b2c3d4e5f60720", username: "jordi" }
+                total: 2
+        '400':
+          description: Id invàlid
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401':
+          description: Sessió no vàlida
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '404':
+          description: Usuari no trobat
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+  /achievements:
+    get:
+      summary: Catàleg i progrés de l'usuari autenticat
+      security: [{ bearerAuth: [] }]
+      responses:
+        '401': { description: Sessió no vàlida }
+        '200':
+          description: Catàleg amb el progrés real del compte
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, title, description, icon, target, progress, unlocked]
+                      properties:
+                        id: { type: string }
+                        title: { type: string }
+                        description: { type: string }
+                        icon: { type: string }
+                        target: { type: integer, minimum: 1 }
+                        progress: { type: integer, minimum: 0 }
+                        unlocked: { type: boolean }
   /health:
     get:
       summary: Comprova que el servei funciona
@@ -26,11 +152,154 @@ paths:
                   status: { type: string, example: ok }
                   service: { type: string, example: api-node }
 
+  /chat/sessions:
+    get:
+      summary: Llista l'historial de converses amb el xatbot
+      description: |
+        Sessions de l'usuari autenticat (#163, HU #48), de la més recent a la més antiga segons l'últim
+        missatge desat (o la creació, si encara no en té). Per reobrir la conversa anterior en entrar al xat,
+        l'app pot fer servir el primer element. Una llista buida vol dir que l'usuari no té cap conversa.
+        No compta per al límit de peticions del xat.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Sessions de l'usuari.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/ChatSession' }
+              example:
+                items:
+                  - { id: "6710f1c2a1b2c3d4e5f60718", title: "plans per avui a Girona?", createdAt: "2026-11-23T09:00:00.000Z", lastActivityAt: "2026-11-23T09:05:12.000Z" }
+                  - { id: "6710f1c2a1b2c3d4e5f60719", title: null, createdAt: "2026-11-22T18:30:00.000Z", lastActivityAt: "2026-11-22T18:30:00.000Z" }
+        '401':
+          description: Sense JWT vàlid (error comú de l'API, sense `code`). Cal tornar a iniciar sessió.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '500':
+          description: Error intern de persistència (error comú de l'API, sense `code`).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+    post:
+      summary: Crea una sessió de xat nova ("Nova conversa")
+      description: |
+        Crea una sessió buida per a l'usuari autenticat (#161, HU #47). Els missatges que s'enviïn amb
+        aquest `sessionId` a `POST /chat/messages` no porten cap context de les sessions anteriors.
+        Les sessions anteriors i els seus missatges no s'esborren (es conserven per a l'historial).
+        No admet cos; si se n'envia, ha de ser buit (`{}`). Comparteix el límit de 10 peticions per minut
+        i usuari amb `POST /chat/messages`.
+      security:
+        - bearerAuth: []
+      responses:
+        '201':
+          description: Sessió creada.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [sessionId, createdAt]
+                properties:
+                  sessionId: { type: string, example: "6710f1c2a1b2c3d4e5f60718" }
+                  createdAt: { type: string, format: date-time }
+        '400':
+          description: |
+            El cos porta camps (`INVALID_BODY`). Un cos que no és JSON vàlid dona l'error comú
+            `{ error: "JSON no vàlid" }`, sense `code`.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - { $ref: '#/components/schemas/ChatError' }
+                  - { $ref: '#/components/schemas/Error' }
+              example: { error: Cos de la petició no vàlid, code: INVALID_BODY }
+        '401':
+          description: Sense JWT vàlid (error comú de l'API, sense `code`). Cal tornar a iniciar sessió.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '429':
+          description: Límit de peticions de xat assolit (`RATE_LIMITED`). Es pot reintentar quan indiqui `Retry-After`.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChatError' }
+              example: { error: Has arribat al límit de missatges; torna-ho a provar més tard, code: RATE_LIMITED }
+        '500':
+          description: Error intern de persistència (error comú de l'API, sense `code`).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /chat/sessions/{id}/messages:
+    get:
+      summary: Missatges d'una sessió de l'historial
+      description: |
+        Missatges d'una sessió de l'usuari autenticat (#163, HU #48), en ordre cronològic. Només hi ha els
+        missatges desats: les respostes `fallback` no es desen. Una sessió d'una altra persona respon igual que
+        una d'inexistent (404). No compta per al límit de peticions del xat.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string }, example: "6710f1c2a1b2c3d4e5f60718" }
+      responses:
+        '200':
+          description: Missatges de la sessió (llista buida si encara no en té).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, role, content, createdAt]
+                      properties:
+                        id: { type: string }
+                        role: { type: string, enum: [user, assistant] }
+                        content: { type: string }
+                        createdAt: { type: string, format: date-time }
+              example:
+                items:
+                  - { id: "6710f1c2a1b2c3d4e5f60720", role: user, content: "plans per avui a Girona?", createdAt: "2026-11-23T09:05:10.000Z" }
+                  - { id: "6710f1c2a1b2c3d4e5f60721", role: assistant, content: "Et recomano el concert vermut de les 12:30.", createdAt: "2026-11-23T09:05:12.000Z" }
+        '400':
+          description: L'identificador no és un ObjectId vàlid (`INVALID_SESSION_ID`).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChatError' }
+              example: { error: Identificador de sessió no vàlid, code: INVALID_SESSION_ID }
+        '401':
+          description: Sense JWT vàlid (error comú de l'API, sense `code`). Cal tornar a iniciar sessió.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '404':
+          description: Sessió inexistent o d'una altra persona (`SESSION_NOT_FOUND`).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChatError' }
+              example: { error: Sessió de xat no trobada, code: SESSION_NOT_FOUND }
+        '500':
+          description: Error intern de persistència (error comú de l'API, sense `code`).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
   /chat/messages:
     post:
       summary: Envia un missatge al xatbot
       description: |
-        Crea una sessió de xat nova si no s'envia `sessionId`. La sessió existent
+        Crea una sessió de xat nova si no s'envia `sessionId` (també es pot crear abans amb
+        `POST /chat/sessions`). La sessió existent
         ha de pertànyer a l'usuari autenticat. Envia al model els últims deu missatges
         de la sessió (màxim 1000 caràcters per missatge) com a context. Desa el missatge
         i la resposta només si Python respon.
@@ -221,6 +490,17 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
 
+  /users/me:
+    get:
+      summary: Consulta el perfil propi
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Perfil propi
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '401': { description: Sessió no vàlida }
   /users/me/avatar:
     put:
       summary: Substitueix la foto de perfil (JPEG o PNG fins a 2 MiB)
@@ -315,6 +595,57 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
 
+  /recommendations:
+    get:
+      summary: Esdeveniments recomanats per a l'usuari autenticat («Per a tu»)
+      description: |
+        Puntua els esdeveniments que encara no han acabat segons les categories i etiquetes dels preferits,
+        les preferències i la proximitat de l'usuari, amb els pesos configurables del recomanador
+        (vegeu docs/recomanador.md), i els retorna de més a menys puntuació. Els que ja són preferits no hi surten.
+        - Amb `lat` i `lng`: només els que són dins del radi d'activitat de l'usuari (`proximitatKm`, o 10 km si no
+          en té) i cada resultat inclou `distanceMeters`.
+        - Sense ubicació: els pròxims per data.
+        - Es puntuen com a màxim 200 candidats. A igual puntuació, primer el que comença abans.
+        - Un usuari sense preferits ni preferències rep igualment la llista (per proximitat o per data).
+        - Es recalcula a cada petició (resposta amb `Cache-Control: no-store`): després de marcar o treure un
+          preferit, n'hi ha prou amb tornar a demanar les recomanacions per veure el reajust.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: lat, in: query, schema: { type: number, minimum: -90, maximum: 90 }, description: "Ubicació de l'usuari. Requereix lng." }
+        - { name: lng, in: query, schema: { type: number, minimum: -180, maximum: 180 }, description: "Ubicació de l'usuari. Requereix lat." }
+        - { name: page, in: query, schema: { type: integer, minimum: 1, default: 1 } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+      responses:
+        '200':
+          description: Pàgina de recomanacions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      allOf:
+                        - { $ref: '#/components/schemas/Event' }
+                        - type: object
+                          properties:
+                            score: { type: number, description: "Puntuació de la recomanació (2 decimals); més alta, més recomanat", example: 4.75 }
+                  page: { type: integer }
+                  limit: { type: integer }
+                  total: { type: integer, description: "Nombre d'esdeveniments recomanats (sense els preferits, màxim 200)" }
+        '400':
+          description: Paràmetre invàlid o no admès (només lat, lng, page i limit)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401':
+          description: Cal autenticació
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
   /events:
     get:
       summary: Llista d'esdeveniments (amb filtres i paginació)
@@ -361,6 +692,52 @@ paths:
               schema: { $ref: '#/components/schemas/Error' }
         '401':
           description: Credencial invàlida o sessió revocada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /events/nearby:
+    get:
+      summary: Esdeveniments propers a un punt (mapa)
+      description: |
+        Mateixos filtres i resposta que GET /events, però `lat` i `lng` són obligatoris, sempre hi ha un
+        radi (10 km si no s'envia `radiusKm`) i els resultats s'ordenen per distància, amb `distanceMeters`.
+        És la consulta del mapa: en zones denses (#116, HU #6) l'app demana d'un sol cop tots els
+        esdeveniments de la regió visible i els agrupa en clústers. Per això `limit` admet fins a **500**,
+        per sobre del màxim de 100 de GET /events. Un valor més gran es limita a 500 i, si `total` és més
+        gran que `limit`, hi ha més esdeveniments a la zona (`page` per obtenir-los o un radi més petit).
+        Públic: no inclou `isFavorite`.
+      parameters:
+        - { name: lat, in: query, required: true, schema: { type: number, minimum: -90, maximum: 90 } }
+        - { name: lng, in: query, required: true, schema: { type: number, minimum: -180, maximum: 180 } }
+        - { name: radiusKm, in: query, schema: { type: number, minimum: 0.1, maximum: 500, default: 10 }, description: "Radi en km al voltant de (lat, lng)." }
+        - { name: q, in: query, schema: { type: string }, description: "Text lliure: títol, lloc, municipi o etiqueta" }
+        - { name: category, in: query, schema: { type: string }, description: "Una o més categories separades per coma (vegeu /events/categories)", example: "Música,Teatre" }
+        - { name: tag, in: query, schema: { type: string }, description: "Una o més etiquetes separades per coma" }
+        - { name: comarca, in: query, schema: { type: string } }
+        - { name: municipality, in: query, schema: { type: string } }
+        - { name: price, in: query, schema: { type: string, enum: [free, paid] }, description: "'free' per a esdeveniments gratuïts (preu 0) o 'paid' per als de pagament (preu > 0)" }
+        - { name: from, in: query, schema: { type: string, format: date-time }, description: "Inici de l'interval. Per defecte, ara." }
+        - { name: to, in: query, schema: { type: string, format: date-time }, description: "Final de l'interval" }
+        - { name: page, in: query, schema: { type: integer, minimum: 1, default: 1 } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 500, default: 20 }, description: "Màxim 500 (els valors més grans es limiten a 500)." }
+      responses:
+        '200':
+          description: Pàgina d'esdeveniments, del més proper al més llunyà
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    description: Cada element inclou `distanceMeters`.
+                    items: { $ref: '#/components/schemas/Event' }
+                  page: { type: integer }
+                  limit: { type: integer }
+                  total: { type: integer, description: "Total d'esdeveniments de la zona que compleixen el filtre" }
+        '400':
+          description: Falten `lat`/`lng` o hi ha un paràmetre invàlid
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -429,6 +806,36 @@ paths:
               schema: { $ref: '#/components/schemas/Error' }
         '401':
           description: Credencial invàlida o sessió revocada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /events/{id}/mobility:
+    get:
+      summary: Com arribar-hi de manera sostenible (estacions de bici i carregadors propers)
+      description: |
+        Dades del servei de WayGo per a la secció «Com arribar-hi» de la fitxa: estacions de Bicing/AMBici i
+        punts de recàrrega a menys de 1500 m de l'esdeveniment, ordenats per distància, amb l'enllaç a Google Maps.
+        - Només per a esdeveniments de **Barcelona** (abast acordat amb WayGo).
+        - Si l'esdeveniment no és de Barcelona, no té coordenades o WayGo no respon, la resposta és
+          `{ "available": false }` (200) i l'app no mostra la secció.
+        - La clau de WayGo només es fa servir al servidor: mai arriba a l'app.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Mobilitat propera (o no disponible)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Mobility' }
+              example:
+                available: true
+                summary: { bikeStations: 3, freeSlots: 42, chargingPoints: 2, withinMeters: 500 }
+                points:
+                  - { type: bike_station, name: "PL. CATALUNYA, 20", address: "PL. CATALUNYA, 20", distanceMeters: 72, mapsUrl: "https://www.google.com/maps/dir/?api=1&destination=41.3864,2.1705", system: Bicing, electricBikes: 11, mechanicalBikes: 0, freeSlots: 19 }
+                  - { type: charging_point, name: "62126022680001", address: "Plaça de Catalunya, 08002 Barcelona", distanceMeters: 5, mapsUrl: "https://www.google.com/maps/dir/?api=1&destination=41.387,2.17", chargers: 3, status: OPEN, speed: Fast, current: "AC/DC" }
+        '404':
+          description: No trobat
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -732,10 +1139,37 @@ components:
       type: object
       properties:
         error: { type: string }
+    ChatSession:
+      type: object
+      description: Sessió de conversa amb el xatbot (#163).
+      required: [id, title, createdAt, lastActivityAt]
+      properties:
+        id: { type: string }
+        title:
+          type: string
+          nullable: true
+          maxLength: 80
+          description: Inici del primer missatge de l'usuari. null si la sessió encara no té missatges (p. ex. creada amb `POST /chat/sessions`).
+        createdAt: { type: string, format: date-time }
+        lastActivityAt: { type: string, format: date-time, description: "Últim missatge desat, o la creació si no en té." }
+    FollowList:
+      type: object
+      description: Llista de seguidors o de seguits (#183).
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            required: [id, username]
+            properties:
+              id: { type: string }
+              username: { type: string }
+        total: { type: integer, minimum: 0, description: "Nombre d'elements de `items`" }
     ChatError:
       type: object
       description: |
-        Error de `POST /chat/messages` (#143). `error` és un missatge per mostrar a l'usuari i `code` un
+        Error de les rutes `/chat` (#143, #161, #163). `error` és un missatge per mostrar a l'usuari i `code` un
         identificador estable perquè l'app decideixi què fer sense dependre del text.
 
         | Codi | HTTP | Reintentar? |
@@ -760,11 +1194,20 @@ components:
         code:
           type: string
           enum: [INVALID_BODY, MESSAGE_REQUIRED, MESSAGE_TOO_LONG, INVALID_SESSION_ID, INVALID_LOCALE, SESSION_NOT_FOUND, RATE_LIMITED, CHATBOT_ERROR, CHATBOT_INVALID_RESPONSE, CHATBOT_UNAVAILABLE, EVENTS_UNAVAILABLE, CHATBOT_TIMEOUT]
+    User:
+      type: object
+      description: Usuari autenticat retornat per GET /users/me i al camp user del registre i del login.
+      required: [id, email, username, preferences]
+      properties:
+        id: { type: string }
+        email: { type: string }
+        username: { type: string, nullable: true }
+        preferences: { type: array, items: { type: string } }
+        avatarUrl: { type: string, format: uri, description: Present quan té foto }
     Preferences:
       type: object
       required: [preferences, proximitatKm]
       properties:
-        avatarUrl: { type: string, format: uri }
         preferences:
           type: array
           items: { type: string }
@@ -839,3 +1282,37 @@ components:
               example: [2.82, 41.98]
         tags: { type: array, items: { type: string }, example: ["música", "nadal"] }
         url: { type: string, description: "Enllaç a la pàgina oficial; buit si no n'hi ha" }
+    Mobility:
+      type: object
+      description: "Com arribar-hi (dades de WayGo, només Barcelona). Si available és false, summary és null i points buit."
+      required: [available, summary, points]
+      properties:
+        available: { type: boolean }
+        summary:
+          type: object
+          nullable: true
+          description: "Resum per a la fitxa: punts a menys de withinMeters metres"
+          properties:
+            bikeStations: { type: integer }
+            freeSlots: { type: integer, description: "Ancoratges lliures de les estacions properes" }
+            chargingPoints: { type: integer }
+            withinMeters: { type: integer, example: 500 }
+        points:
+          type: array
+          items:
+            type: object
+            required: [type, name, address, distanceMeters, mapsUrl]
+            properties:
+              type: { type: string, enum: [bike_station, charging_point] }
+              name: { type: string }
+              address: { type: string }
+              distanceMeters: { type: integer }
+              mapsUrl: { type: string, description: "Ruta a Google Maps (només https; buit si no n'hi ha)" }
+              system: { type: string, description: "Només estacions: Bicing o AMBici" }
+              electricBikes: { type: integer, description: "Només estacions" }
+              mechanicalBikes: { type: integer, description: "Només estacions" }
+              freeSlots: { type: integer, description: "Només estacions: ancoratges lliures" }
+              chargers: { type: integer, description: "Només carregadors" }
+              status: { type: string, description: "Només carregadors: OPEN o CLOSE" }
+              speed: { type: string, description: "Només carregadors" }
+              current: { type: string, description: "Només carregadors" }

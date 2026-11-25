@@ -1,0 +1,9 @@
+**
+!apps/
+!apps/api-node/
+!apps/api-node/package.json
+!apps/api-node/package-lock.json
+!apps/api-node/src/
+!apps/api-node/src/**
+!docs/
+!docs/openapi.yaml

@@ -4,6 +4,10 @@
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
 export const DEFAULT_NEARBY_RADIUS_KM = 10;
+// Mapa (#116, HU #6): en una zona densa, l'app demana tots els esdeveniments de la regió visible
+// d'un sol cop (ara amb limit=250) i els agrupa en clústers. Amb el màxim general de 100 en quedaven
+// fora. Només /events/nearby admet aquest màxim: és una consulta acotada pel radi.
+export const MAX_NEARBY_LIMIT = 500;
 
 export class QueryError extends Error {
   constructor(message) {
@@ -56,7 +60,7 @@ function parsePriceFilter(value) {
   throw new QueryError('Paràmetre "price" invàlid (ha de ser "free" o "paid")');
 }
 
-export function parseEventQuery(query = {}, now = new Date()) {
+export function parseEventQuery(query = {}, now = new Date(), { maxLimit = MAX_LIMIT } = {}) {
   const filter = {};
 
   // --- Dates: un esdeveniment coincideix si el seu interval se solapa amb [from, to].
@@ -119,7 +123,7 @@ export function parseEventQuery(query = {}, now = new Date()) {
   const page = query.page !== undefined ? parsePositiveInt(query.page, 'page') : 1;
   const limit = Math.min(
     query.limit !== undefined ? parsePositiveInt(query.limit, 'limit') : DEFAULT_LIMIT,
-    MAX_LIMIT,
+    maxLimit,
   );
 
   return { filter, geo, page, limit, skip: (page - 1) * limit };
@@ -180,10 +184,11 @@ export function parseSearchQuery(query = {}, now = new Date()) {
 // Mateixos filtres, paginació i resposta que GET /events, però "lat" i "lng" són obligatoris i,
 // si no s'envia "radiusKm", s'usa un radi per defecte (així sempre hi ha un límit de distància).
 // El resultat sempre va ordenat per distància i cada element inclou "distanceMeters".
+// "limit" admet fins a MAX_NEARBY_LIMIT (per defecte, 20 com a GET /events).
 export function parseNearbyQuery(query = {}, now = new Date()) {
   if (query.lat === undefined || query.lng === undefined) {
     throw new QueryError('Paràmetres "lat" i "lng" obligatoris');
   }
   const withRadius = { ...query, radiusKm: query.radiusKm ?? DEFAULT_NEARBY_RADIUS_KM };
-  return parseEventQuery(withRadius, now);
+  return parseEventQuery(withRadius, now, { maxLimit: MAX_NEARBY_LIMIT });
 }

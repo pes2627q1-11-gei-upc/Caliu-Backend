@@ -15,7 +15,9 @@ services:
       retries: 5
 
   api-node:
-    build: ./apps/api-node
+    build:
+      context: .
+      dockerfile: apps/api-node/Dockerfile
     restart: unless-stopped
     environment:
       PORT: 3000
@@ -29,6 +31,9 @@ services:
       PYTHON_TIMEOUT_MS: ${PYTHON_TIMEOUT_MS:-60000}
       CORS_ORIGINS: ${CORS_ORIGINS:-}
       EXTERNAL_API_KEYS: ${EXTERNAL_API_KEYS:-}
+      WAYGO_API_URL: ${WAYGO_API_URL:-}
+      WAYGO_API_KEY: ${WAYGO_API_KEY:-}
+      WAYGO_TIMEOUT_MS: ${WAYGO_TIMEOUT_MS:-}
       # development mostra els esdeveniments seed a l'API externa; production els amaga (com el xat).
       APP_ENV: ${APP_ENV:-production}
     ports:
