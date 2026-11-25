@@ -13,7 +13,7 @@ export async function requireAuth(req, res, next) {
   try {
     const payload = verifyAccessToken(match[1]);
     const user = await User.findById(payload.sub).lean();
-    if (!user) return res.status(401).json({ error: 'Sessió no vàlida' });
+    if (!user || (user.sessionVersion ?? 0) !== (payload.sessionVersion ?? 0)) return res.status(401).json({ error: 'Sessió no vàlida' });
     const session = await Session.exists({
       jti: payload.jti, userId: user._id, expiresAt: { $gt: new Date() },
     });

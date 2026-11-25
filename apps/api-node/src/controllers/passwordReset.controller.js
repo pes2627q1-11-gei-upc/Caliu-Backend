@@ -1,5 +1,6 @@
 import { randomBytes, createHash } from 'node:crypto';
 import bcrypt from 'bcryptjs';
+import Session from '../models/Session.js';
 import User from '../models/User.js';
 import { normalizeEmail, validateFields, validatePassword } from '../domain/userValidation.js';
 import { sendResetCode } from '../services/resetEmail.js';
@@ -34,10 +35,11 @@ export async function resetPassword(req, res, next) {
     const invalid = () => res.status(400).json({ error: 'Codi invàlid o caducat' });
     if (typeof token !== 'string' || !/^[a-f0-9]{48}$/.test(token)) return invalid();
     const passwordHash = await bcrypt.hash(password, 12);
-    const result = await User.updateOne({ resetDigest: digest(token), resetExpiresAt: { $gt: new Date() } }, {
-      $set: { passwordHash }, $unset: { resetDigest: '', resetExpiresAt: '' },
+    const user = await User.findOneAndUpdate({ resetDigest: digest(token), resetExpiresAt: { $gt: new Date() } }, {
+      $inc: { sessionVersion: 1 }, $set: { passwordHash }, $unset: { resetDigest: '', resetExpiresAt: '' },
     });
-    if (!result.matchedCount) return invalid();
+    if (!user) return invalid();
+    await Session.deleteMany({ userId: user._id });
     res.sendStatus(204);
   } catch (err) {
     next(err);
