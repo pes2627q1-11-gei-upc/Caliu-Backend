@@ -1,3 +1,4 @@
+import { getPublicProfile } from '../controllers/publicProfile.controller.js';
 import {
   follow, listFollowers, listFollowing, unfollow, validateFollowTarget,
 } from '../controllers/follows.controller.js';
@@ -24,5 +25,7 @@ router.post('/:id/follow', validateFollowTarget, follow);
 router.delete('/:id/follow', validateFollowTarget, unfollow);
 router.get('/:id/followers', listFollowers);
 router.get('/:id/following', listFollowing);
+
+router.get('/:username', getPublicProfile);
 
 export default router;

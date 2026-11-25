@@ -470,6 +470,29 @@ describe('#61 seguiment', () => {
   });
 });
 
+describe('#178 perfil públic', () => {
+  const path = '/users/N%C3%BAria';
+  const lookup = (user) => jest.spyOn(User, 'findOne').mockReturnValue({
+    collation: () => ({ select: () => ({ lean: async () => user }) }),
+  });
+  it('requereix sessió i distingeix usuaris inexistents', async () => {
+    expect((await request(app).get(path)).status).toBe(401);
+    lookup(null);
+    expect((await auth(request(app).get(path))).status).toBe(404);
+  });
+  it('retorna exclusivament el DTO social amb assistències comunes', async () => {
+    lookup({ ...users[OTHER_ID], username: 'Núria' });
+    jest.spyOn(Interaction, 'distinct').mockResolvedValue(['event']);
+    jest.spyOn(Event, 'distinct').mockResolvedValue(['event']);
+    jest.spyOn(Interaction, 'countDocuments').mockResolvedValue(1);
+    jest.spyOn(Follow, 'exists').mockResolvedValue({ _id: 'follow' });
+    const res = await auth(request(app).get(path));
+    expect(res.body).toEqual({ id: OTHER_ID, username: 'Núria', avatarUrl: null, sharedEventsCount: 1, isFollowing: true });
+    expect(Event.distinct).toHaveBeenCalledWith('_id', { _id: { $in: ['event'] }, endDate: { $lt: expect.any(Date) } });
+    expect(Interaction.countDocuments).toHaveBeenCalledWith({ userId: OTHER_ID, type: 'attended', eventId: { $in: ['event'] } });
+  });
+});
+
 describe('#183 seguidors i seguits', () => {
   const THIRD_ID = '64b7f0c2a1b2c3d4e5f6071a';
   const GONE_ID = '64b7f0c2a1b2c3d4e5f6071b';
@@ -589,6 +612,7 @@ describe('#59 assoliments', () => {
     expect((await request(app).get('/achievements')).status).toBe(401);
     jest.spyOn(Achievement, 'find').mockReturnValue({ sort: () => ({ lean: async () => catalog }) });
     jest.spyOn(Interaction, 'distinct').mockResolvedValue(['event']);
+    jest.spyOn(Event, 'distinct').mockResolvedValue(['event']);
     jest.spyOn(Interaction, 'countDocuments').mockResolvedValue(0);
     jest.spyOn(Follow, 'countDocuments').mockResolvedValue(12);
     jest.spyOn(Event, 'countDocuments').mockReturnValue({ collation: async () => 0 });
