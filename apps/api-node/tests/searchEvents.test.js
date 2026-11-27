@@ -141,4 +141,46 @@ describe('GET /events (el refactor comparteix codi amb la cerca)', () => {
     const fields = find.mock.calls[0][0].$or.flatMap((c) => Object.keys(c));
     expect(fields).toEqual(['title', 'venue', 'municipality', 'tags']);
   });
+
+  it('filtra per price=free passant { price: 0 } a la base de dades', async () => {
+    find.mockReturnValue(chain([DOC]));
+    countDocuments.mockResolvedValue(1);
+
+    const res = await request(app).get('/events').query({ price: 'free' });
+
+    expect(res.status).toBe(200);
+    expect(find.mock.calls[0][0].price).toBe(0);
+    expect(countDocuments.mock.calls[0][0].price).toBe(0);
+  });
+
+  it('filtra per price=paid passant { price: { $gt: 0 } } a la base de dades', async () => {
+    find.mockReturnValue(chain([DOC]));
+    countDocuments.mockResolvedValue(1);
+
+    const res = await request(app).get('/events').query({ price: 'paid' });
+
+    expect(res.status).toBe(200);
+    expect(find.mock.calls[0][0].price).toEqual({ $gt: 0 });
+    expect(countDocuments.mock.calls[0][0].price).toEqual({ $gt: 0 });
+  });
+
+  it('no afegeix filtre de preu si no s\'envia el paràmetre price', async () => {
+    find.mockReturnValue(chain([DOC]));
+    countDocuments.mockResolvedValue(1);
+
+    const res = await request(app).get('/events');
+
+    expect(res.status).toBe(200);
+    expect(find.mock.calls[0][0].price).toBeUndefined();
+    expect(countDocuments.mock.calls[0][0].price).toBeUndefined();
+  });
+
+  it('retorna 400 si s\'envia un valor de price invàlid', async () => {
+    const res = await request(app).get('/events').query({ price: 'invalid' });
+
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ error: 'Paràmetre "price" invàlid (ha de ser "free" o "paid")' });
+    expect(find).not.toHaveBeenCalled();
+    expect(countDocuments).not.toHaveBeenCalled();
+  });
 });

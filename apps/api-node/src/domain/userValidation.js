@@ -29,14 +29,17 @@ export function normalizeEmail(value) {
 export function validateCredentials(body, registration = false) {
   validateFields(body, registration ? ['username', 'email', 'password'] : ['email', 'password']);
   const email = normalizeEmail(body.email);
-  const { password } = body;
+  return { email, password: validatePassword(body.password) };
+}
+
+export function validatePassword(password) {
   // bcrypt limita l'entrada a 72 bytes: rebutgem, mai truncem silenciosament.
   if (typeof password !== 'string' || [...password].length < 8
     || Buffer.byteLength(password, 'utf8') > 72 || !password.trim()
     || /\p{Cc}/u.test(password)) {
     throw invalid('password ha de tenir almenys 8 caràcters i com a màxim 72 bytes UTF-8, sense controls');
   }
-  return { email, password };
+  return password;
 }
 
 export function normalizeUsername(value) {
@@ -57,7 +60,7 @@ const categoryKey = (value) => value.trim().normalize('NFC').toLocaleLowerCase('
 const categories = new Map(EVENT_CATEGORIES.map((value) => [categoryKey(value), value]));
 
 export function validatePreferences(body) {
-  validateFields(body, ['preferences']);
+  validateFields(body, ['preferences', 'proximitatKm']);
   if (!Array.isArray(body.preferences) || body.preferences.length > 30) {
     throw invalid('preferences ha de ser una llista de com a màxim 30 elements');
   }
@@ -77,4 +80,13 @@ export function validatePreferences(body) {
     }
     return result;
   }, []);
+}
+
+// Radi d'activitat (#123): mateixos límits que radiusKm de GET /events. null l'esborra.
+export function validateProximitatKm(value) {
+  if (value === null) return null;
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0.1 || value > 500) {
+    throw invalid('proximitatKm ha de ser un número entre 0.1 i 500, o null');
+  }
+  return value;
 }

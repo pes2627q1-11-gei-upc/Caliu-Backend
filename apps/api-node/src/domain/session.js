@@ -3,10 +3,10 @@ import jwt from 'jsonwebtoken';
 import { publicUser } from '../models/User.js';
 
 // Es prepara i signa abans d'escriure; mai es desa el JWT complet.
-export function prepareSession(userId, config) {
+export function prepareSession(userId, config, sessionVersion = 0) {
   const jti = randomBytes(32).toString('hex');
   const iat = Math.floor(Date.now() / 1000);
-  const token = jwt.sign({ iat }, config.secret, {
+  const token = jwt.sign({ iat, sessionVersion }, config.secret, {
     algorithm: 'HS256', subject: String(userId), jwtid: jti, expiresIn: config.expiresIn,
     issuer: config.issuer, audience: config.audience,
   });

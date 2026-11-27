@@ -2,6 +2,7 @@ import {
   accentInsensitiveRegex,
   DEFAULT_NEARBY_RADIUS_KM,
   parseEventQuery,
+  MAX_NEARBY_LIMIT,
   parseNearbyQuery,
   parseSearchQuery,
   QueryError,
@@ -111,6 +112,55 @@ describe('parseEventQuery', () => {
     it('també s\'aplica a la cerca per text (GET /events/search)', () => {
       const { filter } = parseSearchQuery({ q: 'jazz', comarca: 'Gironès' }, NOW);
       expect(matches(filter.comarca.$in[0], 'Gironès')).toBe(true);
+    });
+  });
+
+  describe('filtre per preu (price)', () => {
+    it('sense paràmetre "price" no afegeix filtre de preu', () => {
+      const { filter } = parseEventQuery({}, NOW);
+      expect(filter.price).toBeUndefined();
+    });
+
+    it('accepta price=free per filtrar esdeveniments gratuïts (price = 0)', () => {
+      const { filter } = parseEventQuery({ price: 'free' }, NOW);
+      expect(filter.price).toBe(0);
+    });
+
+    it('accepta price=paid per filtrar esdeveniments de pagament (price > 0)', () => {
+      const { filter } = parseEventQuery({ price: 'paid' }, NOW);
+      expect(filter.price).toEqual({ $gt: 0 });
+    });
+
+    it('és insensible a majúscules i ignora espais al voltant', () => {
+      expect(parseEventQuery({ price: 'FREE' }, NOW).filter.price).toBe(0);
+      expect(parseEventQuery({ price: ' Free ' }, NOW).filter.price).toBe(0);
+      expect(parseEventQuery({ price: 'PAID' }, NOW).filter.price).toEqual({ $gt: 0 });
+      expect(parseEventQuery({ price: ' paid ' }, NOW).filter.price).toEqual({ $gt: 0 });
+    });
+
+    it('rebutja valors no vàlids amb QueryError', () => {
+      const invalidValues = ['gratis', 'gratuït', '0', '10', '', ' ', 'unknown', true, null, ['free'], ['free', 'paid']];
+      for (const val of invalidValues) {
+        expect(() => parseEventQuery({ price: val }, NOW)).toThrow(QueryError);
+        expect(() => parseEventQuery({ price: val }, NOW)).toThrow(
+          'Paràmetre "price" invàlid (ha de ser "free" o "paid")',
+        );
+      }
+    });
+
+    it('es combina correctament amb altres filtres (categories, dates, text)', () => {
+      const { filter } = parseEventQuery({ price: 'free', category: 'Música', q: 'jazz' }, NOW);
+      expect(filter.price).toBe(0);
+      expect(filter.categories).toEqual({ $in: ['Música'] });
+      expect(filter.$or).toBeDefined();
+    });
+
+    it('es transmet a parseSearchQuery i parseNearbyQuery', () => {
+      const search = parseSearchQuery({ q: 'jazz', price: 'free' }, NOW);
+      expect(search.filter.price).toBe(0);
+
+      const nearby = parseNearbyQuery({ lat: '41.38', lng: '2.17', price: 'paid' }, NOW);
+      expect(nearby.filter.price).toEqual({ $gt: 0 });
     });
   });
 
@@ -241,6 +291,36 @@ describe('parseNearbyQuery', () => {
   it('respecta radiusKm si s\'envia', () => {
     const r = parseNearbyQuery({ lat: '41.38', lng: '2.17', radiusKm: '3' }, NOW);
     expect(r.geo.maxDistance).toBe(3000);
+  });
+
+  describe('límit per a zones denses (#116)', () => {
+    const at = { lat: '41.38', lng: '2.17' };
+
+    it('manté el límit per defecte de 20', () => {
+      expect(parseNearbyQuery(at, NOW).limit).toBe(20);
+    });
+
+    it('admet el límit que demana el mapa (250), per sobre del màxim general', () => {
+      const r = parseNearbyQuery({ ...at, limit: '250' }, NOW);
+      expect(r.limit).toBe(250);
+      expect(r.skip).toBe(0);
+    });
+
+    it(`limita el límit a ${MAX_NEARBY_LIMIT} i continua paginant`, () => {
+      expect(parseNearbyQuery({ ...at, limit: '5000' }, NOW).limit).toBe(MAX_NEARBY_LIMIT);
+      expect(parseNearbyQuery({ ...at, limit: '500', page: '2' }, NOW).skip).toBe(500);
+    });
+
+    it('no canvia el màxim de 100 de GET /events ni de la cerca', () => {
+      expect(parseEventQuery({ ...at, limit: '250' }, NOW).limit).toBe(100);
+      expect(parseSearchQuery({ q: 'jazz', limit: '250' }, NOW).limit).toBe(100);
+    });
+
+    it('rebutja un límit no vàlid', () => {
+      for (const limit of ['0', '-5', 'molts', '2.5']) {
+        expect(() => parseNearbyQuery({ ...at, limit }, NOW)).toThrow(QueryError);
+      }
+    });
   });
 
   it('valida coordenades i radi com GET /events', () => {

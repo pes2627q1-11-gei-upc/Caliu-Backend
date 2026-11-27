@@ -18,8 +18,10 @@ API i serveis de **Caliu**: descoberta d’esdeveniments culturals a Catalunya (
   <a href="docs/onboarding.md"><b>Onboarding</b></a> ·
   <a href="docs/deploy.md"><b>Deploy</b></a> ·
   <a href="docs/sprint-1.md"><b>Sprint 1</b></a> ·
+  <a href="https://caliu-api.onrender.com/api-docs/"><b>Swagger UI</b></a> ·
   <a href="docs/openapi.yaml"><b>OpenAPI</b></a> ·
   <a href="docs/arquitectura.md"><b>Arquitectura</b></a> ·
+  <a href="docs/recomanador.md"><b>Recomanador</b></a> ·
   <a href="CONTRIBUTING.md"><b>Contribuir</b></a> ·
   <a href="https://github.com/pes2627q1-11-gei-upc/Caliu-FrontEnd"><b>FrontEnd</b></a>
 </p>
@@ -72,7 +74,7 @@ Desplegada a: **https://caliu-api.onrender.com**
 - Health: https://caliu-api.onrender.com/health  
 - Exemple: https://caliu-api.onrender.com/events?limit=3  
 
-Servei Docker a Render amb **Root Directory** `apps/api-node` i variable `MONGO_URI` (Atlas).  
+Servei Docker a Render amb context d’imatge a l’arrel del repositori i variable `MONGO_URI` (Atlas). [Configuració de desplegament](docs/deploy.md#config-del-web-service-resum)
 Al pla free pot adormir-se: la primera petició després d’una estona pot trigar ~30–60 s.
 
 El front (APK / `flutter run`) ha d’usar:
@@ -93,6 +95,8 @@ El repositori és públic: **mai** pugeu `.env`, claus d’Atlas ni API keys.
 
 El contracte compartit amb el front és [`docs/openapi.yaml`](docs/openapi.yaml).
 
+Obriu Swagger UI a [Render](https://caliu-api.onrender.com/api-docs/) o, amb Docker Compose en marxa, a [localhost:3000](http://localhost:3000/api-docs/). Seleccioneu el servidor corresponent i proveu `GET /health` amb **Try it out**.
+
 Endpoints principals:
 
 | Mètode | Ruta | Descripció |
@@ -100,7 +104,9 @@ Endpoints principals:
 | `GET` | `/health` | Estat del servei |
 | `GET` | `/events` | Llista amb filtres i paginació |
 | `GET` | `/events/categories` | Categories disponibles |
+| `GET` | `/events/locations` | Parelles úniques de comarca i municipi amb esdeveniments disponibles |
 | `GET` | `/events/:id` | Detall d’un esdeveniment |
+| `GET` | `/ext/v1/events` | Agenda per dates i zona per a altres equips (clau `X-API-Key`) |
 
 Coordenades en ordre **GeoJSON** `[lng, lat]`. Errors: `{ "error": "…" }`.
 

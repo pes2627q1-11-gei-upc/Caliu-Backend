@@ -6,7 +6,13 @@ export const USERNAME_COLLATION = { locale: 'ca', strength: 2, normalization: tr
 const userSchema = new mongoose.Schema(
   {
     email: { type: String, required: true, unique: true, trim: true, lowercase: true, maxlength: 254 },
+    avatarUrl: String,
+    avatarVersion: { type: String, select: false },
+    avatarBytes: { type: Buffer, select: false },
+    resetDigest: { type: String, select: false },
+    resetExpiresAt: { type: Date, select: false },
     passwordHash: { type: String, required: true, select: false },
+    sessionVersion: { type: Number, default: 0 },
     username: {
       type: String,
       required: true,
@@ -18,10 +24,14 @@ const userSchema = new mongoose.Schema(
       },
     },
     preferences: { type: [String], default: [] },
+    // Radi d'activitat en km (#123). Sense valor si l'usuari no n'ha triat cap.
+    proximitatKm: { type: Number, min: 0.1, max: 500 },
   },
   // Els índexs es creen explícitament després de l'auditoria de dades antigues.
   { timestamps: true, autoIndex: false },
 );
+
+userSchema.index({ resetDigest: 1 }, { partialFilterExpression: { resetDigest: { $type: "string" } } });
 
 userSchema.index({ username: 1 }, {
   name: 'username_unique_ci', unique: true, collation: USERNAME_COLLATION,
@@ -33,6 +43,7 @@ userSchema.index({ username: 1 }, {
 export function publicUser(user) {
   return {
     id: String(user._id),
+    ...(user.avatarUrl ? { avatarUrl: user.avatarUrl } : {}),
     email: user.email,
     username: user.username ?? null,
     preferences: [...user.preferences],

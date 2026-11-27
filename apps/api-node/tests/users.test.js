@@ -1,7 +1,12 @@
+import Achievement from '../src/models/Achievement.js';
+import { catalog, seedAchievements } from '../src/domain/achievementCatalog.js';
+import Follow from '../src/models/Follow.js';
 import { jest } from '@jest/globals';
 import request from 'supertest';
 import jwt from 'jsonwebtoken';
 import { randomBytes } from 'node:crypto';
+import Event from '../src/models/Event.js';
+import Interaction from '../src/models/Interaction.js';
 import Session from '../src/models/Session.js';
 import User from '../src/models/User.js';
 import { EVENT_CATEGORIES } from '../src/domain/eventCategories.js';
@@ -92,7 +97,7 @@ describe('#34 perfil propi', () => {
     expect(res.body).toEqual({ error: 'El username ja està ocupat' });
   });
 
-  it.each(['email', 'password', 'passwordHash', 'role', 'tokenVersion', '_id', 'id', 'userId', 'preferences', '__v', '$set'])('rebutja mass assignment de %s', async (key) => {
+  it.each(['email', 'password', 'passwordHash', 'role', 'tokenVersion', '_id', 'id', 'userId', 'preferences', 'proximitatKm', '__v', '$set'])('rebutja mass assignment de %s', async (key) => {
     const before = clone(users);
     const res = await auth(request(app).patch('/users/me').send({ username: 'correcte', [key]: OTHER_ID }));
     expect(res.status).toBe(400);
@@ -116,14 +121,14 @@ describe('#34 perfil propi', () => {
 
 describe('#37 preferències', () => {
   it('consulta, substitueix, normalitza, deduplica i elimina les preferències pròpies', async () => {
-    expect((await auth(request(app).get('/users/me/preferences'))).body).toEqual({ preferences: [] });
+    expect((await auth(request(app).get('/users/me/preferences'))).body).toEqual({ preferences: [], proximitatKm: null });
     const res = await auth(request(app).put('/users/me/preferences').send({ preferences: [' Música ', 'música', 'Teatre', 'Mu\u0301sica'] }));
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ preferences: ['Música', 'Teatre'] });
+    expect(res.body).toEqual({ preferences: ['Música', 'Teatre'], proximitatKm: null });
     expect((await auth(request(app).get('/users/me/preferences'))).body).toEqual(res.body);
-    expect((await auth(request(app).put('/users/me/preferences').send({ preferences: ['Arts'] }))).body).toEqual({ preferences: ['Arts'] });
-    expect((await auth(request(app).put('/users/me/preferences').send({ preferences: [] }))).body).toEqual({ preferences: [] });
-    expect((await auth(request(app).get('/users/me/preferences'))).body).toEqual({ preferences: [] });
+    expect((await auth(request(app).put('/users/me/preferences').send({ preferences: ['Arts'] }))).body).toEqual({ preferences: ['Arts'], proximitatKm: null });
+    expect((await auth(request(app).put('/users/me/preferences').send({ preferences: [] }))).body).toEqual({ preferences: [], proximitatKm: null });
+    expect((await auth(request(app).get('/users/me/preferences'))).body).toEqual({ preferences: [], proximitatKm: null });
     expect(users[OTHER_ID].preferences).toEqual([]);
     expect(User.findOneAndUpdate).toHaveBeenLastCalledWith(
       { _id: ID }, { $set: { preferences: [] } }, { new: true, runValidators: true },
@@ -140,8 +145,43 @@ describe('#37 preferències', () => {
   it.each([{}, [], { preferences: null }, { preferences: 'Música' }, { preferences: [42] },
     { preferences: [{}] }, { preferences: ['Cinema'] }, { preferences: ['musica'] }, { preferences: [''] }, { preferences: ['   '] },
     { preferences: ['a'.repeat(51)] }, { preferences: ['a\nb'] }, { preferences: ['a\u200bb'] },
-    { preferences: Array(31).fill('Música') }, { preferences: [], userId: OTHER_ID }])('valida la llista %#', async (body) => {
+    { preferences: Array(31).fill('Música') }, { preferences: [], userId: OTHER_ID }, { proximitatKm: 10 }])('valida la llista %#', async (body) => {
     const res = await auth(request(app).put('/users/me/preferences').send(body));
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ error: expect.any(String) });
+    expect(User.findOneAndUpdate).not.toHaveBeenCalled();
+  });
+});
+
+describe('#123 proximitatKm', () => {
+  const put = (body) => auth(request(app).put('/users/me/preferences').send(body));
+
+  it('desa, consulta i esborra el radi d\'activitat propi', async () => {
+    const res = await put({ preferences: ['Teatre'], proximitatKm: 12.5 });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ preferences: ['Teatre'], proximitatKm: 12.5 });
+    expect((await auth(request(app).get('/users/me/preferences'))).body).toEqual(res.body);
+    expect((await put({ preferences: ['Teatre'], proximitatKm: null })).body).toEqual({ preferences: ['Teatre'], proximitatKm: null });
+    expect(users[OTHER_ID].proximitatKm).toBeUndefined();
+  });
+
+  it('manté el radi si només es canvien les categories', async () => {
+    await put({ preferences: [], proximitatKm: 30 });
+    const res = await put({ preferences: ['Arts'] });
+    expect(res.body).toEqual({ preferences: ['Arts'], proximitatKm: 30 });
+    expect(User.findOneAndUpdate).toHaveBeenLastCalledWith(
+      { _id: ID }, { $set: { preferences: ['Arts'] } }, { new: true, runValidators: true },
+    );
+  });
+
+  it.each([0.1, 500])('accepta el límit %p', async (proximitatKm) => {
+    const res = await put({ preferences: [], proximitatKm });
+    expect(res.status).toBe(200);
+    expect(res.body.proximitatKm).toBe(proximitatKm);
+  });
+
+  it.each([-1, 0, 0.09, 500.1, '5', true, {}, []])('rebutja proximitatKm %p', async (proximitatKm) => {
+    const res = await put({ preferences: [], proximitatKm });
     expect(res.status).toBe(400);
     expect(res.body).toEqual({ error: expect.any(String) });
     expect(User.findOneAndUpdate).not.toHaveBeenCalled();
@@ -200,4 +240,414 @@ describe('protecció i errors comuns', () => {
     User.findOneAndUpdate.mockResolvedValueOnce(null);
     expect((await auth(request(app)[method](path).send(body))).status).toBe(401);
   });
+});
+
+describe('#185 alta de preferits', () => {
+  const path = '/users/me/favorites';
+  const eventId = '64b7f0c2a1b2c3d4e5f60720';
+
+  beforeEach(() => {
+    jest.spyOn(Event, 'exists').mockResolvedValue({ _id: eventId });
+    jest.spyOn(Interaction, 'updateOne').mockResolvedValue({ upsertedCount: 1 });
+  });
+
+  it('exigeix autenticació i valida l’identificador abans de consultar Mongo', async () => {
+    expect((await request(app).post(path).send({ eventId })).status).toBe(401);
+    expect((await auth(request(app).post(path)).send({ eventId: 'invalid' })).status).toBe(400);
+    expect(Event.exists).not.toHaveBeenCalled();
+    expect(Interaction.updateOne).not.toHaveBeenCalled();
+  });
+
+  it('retorna 404 si l’esdeveniment no existeix', async () => {
+    Event.exists.mockResolvedValueOnce(null);
+    expect((await auth(request(app).post(path)).send({ eventId })).status).toBe(404);
+    expect(Interaction.updateOne).not.toHaveBeenCalled();
+  });
+
+  it('retorna 204 tant si insereix com si el preferit ja existia', async () => {
+    Interaction.updateOne.mockResolvedValueOnce({ upsertedCount: 1 })
+      .mockResolvedValueOnce({ matchedCount: 1, upsertedCount: 0 });
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const res = await auth(request(app).post(path)).send({ eventId, userId: OTHER_ID });
+      expect(res.status).toBe(204);
+      expect(res.text).toBe('');
+    }
+    expect(Interaction.updateOne).toHaveBeenCalledTimes(2);
+    expect(Interaction.updateOne).toHaveBeenLastCalledWith(
+      { userId: ID, type: 'favorite', eventId },
+      { $setOnInsert: { createdAt: expect.any(Date), updatedAt: expect.any(Date), notificacionsActives: true } },
+      { upsert: true, timestamps: false },
+    );
+  });
+
+  it('accepta una alta concurrent i propaga altres errors de Mongo', async () => {
+    Interaction.updateOne.mockRejectedValueOnce(Object.assign(new Error(), {
+      code: 11000, keyPattern: { userId: 1, type: 1, eventId: 1 },
+    })).mockRejectedValueOnce(new Error('Mongo unavailable'));
+    expect((await auth(request(app).post(path)).send({ eventId })).status).toBe(204);
+    expect((await auth(request(app).post(path)).send({ eventId })).status).toBe(500);
+  });
+});
+
+describe('#166 baixa de preferits', () => {
+  const eventId = '64b7f0c2a1b2c3d4e5f60720';
+  const path = `/users/me/favorites/${eventId}`;
+
+  beforeEach(() => {
+    jest.spyOn(Interaction, 'deleteOne').mockResolvedValue({ deletedCount: 1 });
+  });
+
+  it('exigeix una sessió vàlida abans d’eliminar', async () => {
+    expect((await request(app).delete(path)).status).toBe(401);
+    expect((await auth(request(app).delete(path), 'invalid')).status).toBe(401);
+    expect(Interaction.deleteOne).not.toHaveBeenCalled();
+  });
+
+  it('rebutja un identificador invàlid', async () => {
+    expect((await auth(request(app).delete('/users/me/favorites/no-valid'))).status).toBe(400);
+    expect(Interaction.deleteOne).not.toHaveBeenCalled();
+  });
+
+  it('elimina només el preferit de l’usuari autenticat i retorna 204 també en repetir', async () => {
+    Interaction.deleteOne.mockResolvedValueOnce({ deletedCount: 1 })
+      .mockResolvedValueOnce({ deletedCount: 0 });
+
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const res = await auth(request(app).delete(path).send({ userId: OTHER_ID }));
+      expect(res.status).toBe(204);
+      expect(res.text).toBe('');
+    }
+
+    expect(Interaction.deleteOne.mock.calls).toEqual([
+      [{ userId: ID, type: 'favorite', eventId }],
+      [{ userId: ID, type: 'favorite', eventId }],
+    ]);
+  });
+
+  it('propaga les fallades de persistència', async () => {
+    Interaction.deleteOne.mockRejectedValueOnce(new Error('Mongo unavailable'));
+    expect((await auth(request(app).delete(path))).status).toBe(500);
+  });
+});
+
+describe('#151 guardats i activitat', () => {
+  const eventId = '64b7f0c2a1b2c3d4e5f60720';
+  const interactionId = '64b7f0c2a1b2c3d4e5f60721';
+  const createdAt = new Date('2026-11-18T12:00:00Z');
+  const doc = { _id: interactionId, eventId: { _id: eventId, title: 'Concert', __v: 0 }, createdAt };
+  let lean;
+  let sort;
+
+  beforeEach(() => {
+    lean = jest.fn().mockResolvedValue([doc, { eventId: null }]);
+    sort = jest.fn().mockReturnValue({ populate: jest.fn().mockReturnValue({ lean }) });
+    jest.spyOn(Interaction, 'find').mockReturnValue({ sort });
+  });
+
+  it.each([
+    ['favorites', 'favorite', { id: eventId, title: 'Concert', isFavorite: true, notificacionsActives: true }],
+    ['activity', 'attended', { id: interactionId, event: { id: eventId, title: 'Concert' }, attendedAt: createdAt.toISOString() }],
+  ])('retorna només les interaccions pròpies a /%s', async (route, type, item) => {
+    const res = await auth(request(app).get(`/users/me/${route}?userId=${OTHER_ID}`));
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ items: [item] });
+    expect(Interaction.find).toHaveBeenCalledWith({ userId: ID, type });
+    expect(sort).toHaveBeenCalledWith({ createdAt: -1, _id: -1 });
+  });
+
+  it.each(['favorites', 'activity'])('retorna una llista buida i exigeix sessió a /%s', async (route) => {
+    const path = `/users/me/${route}`;
+    expect((await request(app).get(path)).status).toBe(401);
+    expect(Interaction.find).not.toHaveBeenCalled();
+    lean.mockResolvedValueOnce([]);
+    expect((await auth(request(app).get(path))).body).toEqual({ items: [] });
+    lean.mockRejectedValueOnce(new Error('Mongo unavailable'));
+    expect((await auth(request(app).get(path))).status).toBe(500);
+  });
+});
+
+describe('#168 historial d’assistència', () => {
+  const path = '/users/me/attended';
+  let populate;
+  let lean;
+
+  beforeEach(() => {
+    lean = jest.fn().mockResolvedValue([]);
+    populate = jest.fn().mockReturnValue({ lean });
+    jest.spyOn(Interaction, 'find').mockReturnValue({ populate });
+  });
+
+  it('demana només assistències pròpies i esdeveniments acabats', async () => {
+    const older = { _id: '64b7f0c2a1b2c3d4e5f60720', endDate: new Date('2026-10-15') };
+    const newer = { _id: '64b7f0c2a1b2c3d4e5f60721', endDate: new Date('2026-11-01') };
+    lean.mockResolvedValueOnce([{ eventId: older }, { eventId: null }, { eventId: newer }]);
+    const before = Date.now();
+    const res = await auth(request(app).get(`${path}?userId=${OTHER_ID}`));
+
+    expect(res.status).toBe(200);
+    expect(res.body.items.map(({ id }) => id)).toEqual([newer._id, older._id]);
+    expect(Interaction.find).toHaveBeenCalledWith({ userId: ID, type: 'attended' });
+    expect(populate).toHaveBeenCalledWith({ path: 'eventId', match: { endDate: { $lt: expect.any(Date) } } });
+    const cutoff = populate.mock.calls[0][0].match.endDate.$lt.getTime();
+    expect(cutoff).toBeGreaterThanOrEqual(before);
+    expect(cutoff).toBeLessThanOrEqual(Date.now());
+  });
+
+  it('requereix sessió i retorna items buits si no hi ha resultats', async () => {
+    expect((await request(app).get(path)).status).toBe(401);
+    expect(Interaction.find).not.toHaveBeenCalled();
+    const res = await auth(request(app).get(path));
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ items: [] });
+    lean.mockRejectedValueOnce(new Error('Mongo unavailable'));
+    expect((await auth(request(app).get(path))).status).toBe(500);
+  });
+});
+
+describe('#170 alertes dels preferits', () => {
+  const eventId = '64b7f0c2a1b2c3d4e5f60720';
+  const path = `/users/me/favorites/${eventId}`;
+
+  beforeEach(() => {
+    jest.spyOn(Interaction, 'updateOne').mockResolvedValue({ matchedCount: 1, modifiedCount: 0 });
+  });
+
+  it.each([false, true])('desa notificacionsActives=%s només al preferit propi', async (enabled) => {
+    const res = await auth(request(app).patch(path)).send({ notificacionsActives: enabled, userId: OTHER_ID });
+    expect(res.status).toBe(204);
+    expect(Interaction.updateOne).toHaveBeenCalledWith(
+      { userId: ID, type: 'favorite', eventId },
+      { $set: { notificacionsActives: enabled } },
+    );
+  });
+
+  it('conserva el valor false quan es torna a consultar el preferit', async () => {
+    jest.spyOn(Interaction, 'find').mockReturnValue({
+      sort: () => ({ populate: () => ({ lean: async () => [
+        { eventId: { _id: eventId }, notificacionsActives: false },
+      ] }) }),
+    });
+    const res = await auth(request(app).get('/users/me/favorites'));
+    expect(res.status).toBe(200);
+    expect(res.body.items).toEqual([{ id: eventId, isFavorite: true, notificacionsActives: false }]);
+  });
+
+  it('rebutja peticions sense sessió, amb ID invàlid o amb un valor no booleà', async () => {
+    expect((await request(app).patch(path).send({ notificacionsActives: true })).status).toBe(401);
+    expect((await auth(request(app).patch('/users/me/favorites/no-valid')).send({ notificacionsActives: true })).status).toBe(400);
+    expect((await auth(request(app).patch(path)).send({ notificacionsActives: 'false' })).status).toBe(400);
+    expect(Interaction.updateOne).not.toHaveBeenCalled();
+  });
+
+  it('retorna 404 si el preferit no existeix i 500 si falla la persistència', async () => {
+    Interaction.updateOne.mockResolvedValueOnce({ matchedCount: 0 })
+      .mockRejectedValueOnce(new Error('Mongo unavailable'));
+    expect((await auth(request(app).patch(path)).send({ notificacionsActives: false })).status).toBe(404);
+    expect((await auth(request(app).patch(path)).send({ notificacionsActives: false })).status).toBe(500);
+  });
+});
+
+describe('#61 seguiment', () => {
+  it.each(['post', 'delete'])('valida autenticació i destí amb %s', async (method) => {
+    const route = (id) => request(app)[method](`/users/${id}/follow`);
+    expect((await route(OTHER_ID)).status).toBe(401);
+    expect((await auth(route(ID))).status).toBe(400);
+    expect((await auth(route('invalid'))).status).toBe(400);
+    jest.spyOn(User, 'exists').mockResolvedValue(null);
+    expect((await auth(route(OTHER_ID))).status).toBe(404);
+  });
+
+  it('segueix i deixa de seguir només en la direcció demanada', async () => {
+    jest.spyOn(User, 'exists').mockResolvedValue({ _id: OTHER_ID });
+    jest.spyOn(Follow, 'updateOne').mockResolvedValue({});
+    jest.spyOn(Follow, 'deleteOne').mockResolvedValue({});
+    const relation = { follower: ID, followed: OTHER_ID };
+    const path = `/users/${OTHER_ID}/follow`;
+    expect((await auth(request(app).post(path))).status).toBe(204);
+    expect(Follow.updateOne).toHaveBeenCalledWith(relation, { $setOnInsert: relation }, { upsert: true });
+    expect((await auth(request(app).delete(path))).status).toBe(204);
+    expect(Follow.deleteOne).toHaveBeenCalledWith(relation);
+  });
+});
+
+describe('#178 perfil públic', () => {
+  const path = '/users/N%C3%BAria';
+  const lookup = (user) => jest.spyOn(User, 'findOne').mockReturnValue({
+    collation: () => ({ select: () => ({ lean: async () => user }) }),
+  });
+  it('requereix sessió i distingeix usuaris inexistents', async () => {
+    expect((await request(app).get(path)).status).toBe(401);
+    lookup(null);
+    expect((await auth(request(app).get(path))).status).toBe(404);
+  });
+  it('retorna exclusivament el DTO social amb assistències comunes', async () => {
+    lookup({ ...users[OTHER_ID], username: 'Núria' });
+    jest.spyOn(Interaction, 'distinct').mockResolvedValue(['event']);
+    jest.spyOn(Event, 'distinct').mockResolvedValue(['event']);
+    jest.spyOn(Interaction, 'countDocuments').mockResolvedValue(1);
+    jest.spyOn(Follow, 'exists').mockResolvedValue({ _id: 'follow' });
+    const res = await auth(request(app).get(path));
+    expect(res.body).toEqual({ id: OTHER_ID, username: 'Núria', avatarUrl: null, sharedEventsCount: 1, isFollowing: true });
+    expect(Event.distinct).toHaveBeenCalledWith('_id', { _id: { $in: ['event'] }, endDate: { $lt: expect.any(Date) } });
+    expect(Interaction.countDocuments).toHaveBeenCalledWith({ userId: OTHER_ID, type: 'attended', eventId: { $in: ['event'] } });
+  });
+});
+
+describe('#183 seguidors i seguits', () => {
+  const THIRD_ID = '64b7f0c2a1b2c3d4e5f6071a';
+  const GONE_ID = '64b7f0c2a1b2c3d4e5f6071b';
+  const relations = (rows) => {
+    const chain = {
+      sort: jest.fn().mockReturnThis(),
+      select: jest.fn().mockReturnThis(),
+      populate: jest.fn().mockReturnThis(),
+      lean: jest.fn().mockResolvedValue(rows),
+    };
+    jest.spyOn(Follow, 'find').mockReturnValue(chain);
+    return chain;
+  };
+
+  it.each([
+    ['followers', 'followed', 'follower'],
+    ['following', 'follower', 'followed'],
+  ])('GET /users/:id/%s retorna només id i username, del més recent al més antic', async (list, by, other) => {
+    jest.spyOn(User, 'exists').mockResolvedValue({ _id: OTHER_ID });
+    const chain = relations([
+      { _id: 'f2', [other]: { _id: THIRD_ID, username: 'Núria', email: 'privat@example.cat' } },
+      { _id: 'f1', [other]: { _id: ID, username: 'jordi' } },
+    ]);
+
+    const res = await auth(request(app).get(`/users/${OTHER_ID}/${list}`));
+
+    expect(res.status).toBe(200);
+    expect(res.headers['cache-control']).toBe('no-store');
+    expect(User.exists).toHaveBeenCalledWith({ _id: OTHER_ID });
+    expect(Follow.find).toHaveBeenCalledWith({ [by]: OTHER_ID });
+    expect(chain.sort).toHaveBeenCalledWith({ _id: -1 });
+    expect(chain.populate).toHaveBeenCalledWith({ path: other, select: 'username' });
+    expect(res.body).toEqual({
+      items: [{ id: THIRD_ID, username: 'Núria' }, { id: ID, username: 'jordi' }],
+      total: 2,
+    });
+  });
+
+  it.each(['followers', 'following'])('retorna una llista buida amb total 0 (%s)', async (list) => {
+    jest.spyOn(User, 'exists').mockResolvedValue({ _id: OTHER_ID });
+    relations([]);
+
+    const res = await auth(request(app).get(`/users/${OTHER_ID}/${list}`));
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ items: [], total: 0 });
+  });
+
+  it('descarta comptes esborrats o sense username, i el total coincideix amb la llista', async () => {
+    jest.spyOn(User, 'exists').mockResolvedValue({ _id: OTHER_ID });
+    relations([
+      { _id: 'f3', follower: null },
+      { _id: 'f2', follower: { _id: GONE_ID } },
+      { _id: 'f1', follower: { _id: THIRD_ID, username: 'Núria' } },
+    ]);
+
+    const res = await auth(request(app).get(`/users/${OTHER_ID}/followers`));
+
+    expect(res.body).toEqual({ items: [{ id: THIRD_ID, username: 'Núria' }], total: 1 });
+  });
+
+  it('permet consultar les llistes pròpies', async () => {
+    jest.spyOn(User, 'exists').mockResolvedValue({ _id: ID });
+    relations([{ _id: 'f1', followed: { _id: OTHER_ID, username: 'marta' } }]);
+
+    const res = await auth(request(app).get(`/users/${ID}/following`));
+
+    expect(res.status).toBe(200);
+    expect(Follow.find).toHaveBeenCalledWith({ follower: ID });
+    expect(res.body.total).toBe(1);
+  });
+
+  it.each(['followers', 'following'])('valida sessió, id i usuari (%s)', async (list) => {
+    const find = jest.spyOn(Follow, 'find');
+    const route = (id) => request(app).get(`/users/${id}/${list}`);
+
+    expect((await route(OTHER_ID)).status).toBe(401);
+    expect((await route(OTHER_ID).auth('no-es-un-jwt', { type: 'bearer' })).status).toBe(401);
+    const invalid = await auth(route('no-es-un-id'));
+    expect(invalid.status).toBe(400);
+    expect(invalid.body).toEqual({ error: 'Identificador no vàlid' });
+    jest.spyOn(User, 'exists').mockResolvedValue(null);
+    const missing = await auth(route(OTHER_ID));
+    expect(missing.status).toBe(404);
+    expect(missing.body).toEqual({ error: 'Usuari no trobat' });
+    expect(find).not.toHaveBeenCalled();
+  });
+
+  it('retorna 500 sense detalls interns si falla la BD', async () => {
+    jest.spyOn(User, 'exists').mockResolvedValue({ _id: OTHER_ID });
+    jest.spyOn(Follow, 'find').mockReturnValue({
+      sort: jest.fn().mockReturnThis(),
+      select: jest.fn().mockReturnThis(),
+      populate: jest.fn().mockReturnThis(),
+      lean: jest.fn().mockRejectedValue(new Error('mongodb://user:secret@host')),
+    });
+
+    const res = await auth(request(app).get(`/users/${OTHER_ID}/followers`));
+
+    expect(res.status).toBe(500);
+    expect(res.body).toEqual({ error: 'Error intern del servidor' });
+  });
+
+  it('indexa la llista de seguidors', () => {
+    expect(Follow.schema.indexes()).toContainEqual([{ followed: 1, _id: -1 }, { background: true }]);
+  });
+});
+
+describe('#59 assoliments', () => {
+  it('inicialitza el catàleg amb upserts per id estable', async () => {
+    const write = jest.spyOn(Achievement, 'bulkWrite').mockResolvedValue({});
+    await seedAchievements();
+    expect(write.mock.calls[0][0]).toHaveLength(6);
+    expect(write.mock.calls[0][0][0].updateOne).toMatchObject({ filter: { _id: 'first-event' }, upsert: true });
+  });
+  it('calcula el progrés del compte i conserva els assoliments bloquejats', async () => {
+    expect((await request(app).get('/achievements')).status).toBe(401);
+    jest.spyOn(Achievement, 'find').mockReturnValue({ sort: () => ({ lean: async () => catalog }) });
+    jest.spyOn(Interaction, 'distinct').mockResolvedValue(['event']);
+    jest.spyOn(Event, 'distinct').mockResolvedValue(['event']);
+    jest.spyOn(Interaction, 'countDocuments').mockResolvedValue(0);
+    jest.spyOn(Follow, 'countDocuments').mockResolvedValue(12);
+    jest.spyOn(Event, 'countDocuments').mockReturnValue({ collation: async () => 0 });
+    const res = await auth(request(app).get('/achievements'));
+    expect(res.status).toBe(200);
+    expect(res.body.items).toHaveLength(6);
+    expect(res.body.items[0]).toMatchObject({ id: 'first-event', progress: 1, unlocked: true });
+    expect(res.body.items[1]).toMatchObject({ id: 'explorer', progress: 1, unlocked: false });
+    expect(res.body.items[5]).toMatchObject({ id: 'social', progress: 5, unlocked: true });
+  });
+});
+describe('#149 avatar', () => {
+  const put = () => auth(request(app).put('/users/me/avatar'));
+  it('rebutja peticions sense JWT, fitxers falsos i fitxers massa grans', async () => {
+    expect((await request(app).put('/users/me/avatar')).status).toBe(401);
+    expect((await put().attach('avatar', Buffer.from('fals'), 'foto.png')).status).toBe(400);
+    expect((await put().attach('avatar', Buffer.alloc(2097153), 'foto.jpg')).status).toBe(413);
+  });
+  it('normalitza la foto, la substitueix i en serveix els bytes per URL', async () => {
+    const { default: sharp } = await import('sharp');
+    const png = await sharp({ create: { width: 2, height: 2, channels: 3, background: 'red' } }).png().toBuffer();
+    const update = jest.spyOn(User, 'updateOne').mockResolvedValue({ matchedCount: 1 });
+    const res = await put().attach('avatar', png, 'foto.png');
+    expect(res.status).toBe(200);
+    const { avatarBytes, avatarUrl } = update.mock.calls[0][1].$set;
+    expect(res.body).toEqual({ avatarUrl });
+    expect((await sharp(avatarBytes).metadata()).format).toBe('jpeg');
+    jest.spyOn(User, 'findOne').mockReturnValue({ select: async () => ({ avatarBytes }) });
+    const image = await request(app).get(new URL(avatarUrl).pathname);
+    expect(image.status).toBe(200);
+    expect(image.body).toEqual(avatarBytes);
+  });
+});
+
+it('rebutja una sessió anterior al reset encara que el document de sessió existeixi', async () => {
+  users[ID].sessionVersion = 1;
+  expect((await auth(request(app).get('/users/me'))).status).toBe(401);
 });

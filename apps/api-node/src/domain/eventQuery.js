@@ -4,6 +4,10 @@
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
 export const DEFAULT_NEARBY_RADIUS_KM = 10;
+// Mapa (#116, HU #6): en una zona densa, l'app demana tots els esdeveniments de la regió visible
+// d'un sol cop (ara amb limit=250) i els agrupa en clústers. Amb el màxim general de 100 en quedaven
+// fora. Només /events/nearby admet aquest màxim: és una consulta acotada pel radi.
+export const MAX_NEARBY_LIMIT = 500;
 
 export class QueryError extends Error {
   constructor(message) {
@@ -47,7 +51,16 @@ function parsePositiveInt(value, name) {
   return n;
 }
 
-export function parseEventQuery(query = {}, now = new Date()) {
+function parsePriceFilter(value) {
+  if (typeof value !== 'string') {
+    throw new QueryError('Paràmetre "price" invàlid (ha de ser "free" o "paid")');
+  }
+  const s = value.trim().toLowerCase();
+  if (s === 'free' || s === 'paid') return s;
+  throw new QueryError('Paràmetre "price" invàlid (ha de ser "free" o "paid")');
+}
+
+export function parseEventQuery(query = {}, now = new Date(), { maxLimit = MAX_LIMIT } = {}) {
   const filter = {};
 
   // --- Dates: un esdeveniment coincideix si el seu interval se solapa amb [from, to].
@@ -63,6 +76,12 @@ export function parseEventQuery(query = {}, now = new Date()) {
   if (categories.length) filter.categories = { $in: categories };
   const tags = toList(query.tag);
   if (tags.length) filter.tags = { $in: tags };
+
+  // --- Preu: "free" (gratuït, price = 0) o "paid" (de pagament, price > 0)
+  if (query.price !== undefined) {
+    const price = parsePriceFilter(query.price);
+    filter.price = price === 'free' ? 0 : { $gt: 0 };
+  }
 
   // --- Comarca / municipi: nom complet, sense distingir majúscules ni accents.
   // Accepten diversos valors ("a,b" o ?x=a&x=b): l'esdeveniment ha de coincidir amb algun.
@@ -104,7 +123,7 @@ export function parseEventQuery(query = {}, now = new Date()) {
   const page = query.page !== undefined ? parsePositiveInt(query.page, 'page') : 1;
   const limit = Math.min(
     query.limit !== undefined ? parsePositiveInt(query.limit, 'limit') : DEFAULT_LIMIT,
-    MAX_LIMIT,
+    maxLimit,
   );
 
   return { filter, geo, page, limit, skip: (page - 1) * limit };
@@ -165,10 +184,11 @@ export function parseSearchQuery(query = {}, now = new Date()) {
 // Mateixos filtres, paginació i resposta que GET /events, però "lat" i "lng" són obligatoris i,
 // si no s'envia "radiusKm", s'usa un radi per defecte (així sempre hi ha un límit de distància).
 // El resultat sempre va ordenat per distància i cada element inclou "distanceMeters".
+// "limit" admet fins a MAX_NEARBY_LIMIT (per defecte, 20 com a GET /events).
 export function parseNearbyQuery(query = {}, now = new Date()) {
   if (query.lat === undefined || query.lng === undefined) {
     throw new QueryError('Paràmetres "lat" i "lng" obligatoris');
   }
   const withRadius = { ...query, radiusKm: query.radiusKm ?? DEFAULT_NEARBY_RADIUS_KM };
-  return parseEventQuery(withRadius, now);
+  return parseEventQuery(withRadius, now, { maxLimit: MAX_NEARBY_LIMIT });
 }
